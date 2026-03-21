@@ -2785,13 +2785,19 @@ function processPayment(method) {
                 ? state.inventory 
                 : state.inventory.filter(i => i.category === currentInventoryFilter);
 
-            container.innerHTML = `
+                container.innerHTML = `
                 <div class="animate-slideIn">
                     <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
                         <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📦 Inventario Clasificado</h2>
-                        <button onclick="showAddInventoryModal()" class="btn-primary px-4 py-2.5 rounded-xl flex items-center gap-2 font-bold shadow-md w-full md:w-auto justify-center">
-                            ➕ Agregar Insumo
-                        </button>
+                        
+                        <div class="flex flex-col sm:flex-row w-full md:w-auto gap-2 md:gap-3">
+                            <button onclick="manageInventoryCategoriesModal()" class="px-4 py-2.5 bg-white border border-theme-beige rounded-xl font-bold text-theme-text hover:bg-theme-beige transition shadow-sm text-sm flex items-center justify-center gap-2 w-full sm:w-auto">
+                                ⚙️ Gestionar Categorías
+                            </button>
+                            <button onclick="showAddInventoryModal()" class="btn-primary px-4 py-2.5 rounded-xl flex items-center justify-center gap-2 font-bold shadow-md w-full sm:w-auto">
+                                ➕ Agregar Insumo
+                            </button>
+                        </div>
                     </div>
 
                     <div class="flex gap-2 overflow-x-auto scrollbar-thin pb-2 mb-4">
@@ -4263,23 +4269,56 @@ function saveNewProduct() {
 
 
 
-        // ==================== ORDERS MODULE ====================
-     // ==================== ORDERS MODULE ====================
-     function renderOrders(container) {
-            // Filtro Diario Inteligente: Solo muestra pedidos creados el día de hoy
-            const todayStr = new Date().toDateString();
-            const activeOrders = state.orders.filter(o => 
-                new Date(o.createdAt).toDateString() === todayStr && 
-                o.status !== 'cancelled'
-            ).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      // ==================== ORDERS MODULE (CON CALENDARIO CORREGIDO) ====================
+      function renderOrders(container) {
+            // 🛡️ MAGIA: Convertir fechas a la zona horaria local exacta para que coincida con el calendario
+            const getLocalYYYYMMDD = (dateObj) => {
+                const d = new Date(dateObj);
+                if (isNaN(d)) return "";
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+
+            const todayLocalStr = getLocalYYYYMMDD(new Date());
+
+            // Si no hay fecha elegida, mostrar Hoy
+            if (typeof window.selectedOrdersDate === 'undefined' || !window.selectedOrdersDate) {
+                window.selectedOrdersDate = todayLocalStr; 
+            }
+
+            const targetDateStr = window.selectedOrdersDate;
+
+            // Filtramos comparando el día, mes y año exactos de la localidad
+            const activeOrders = state.orders.filter(o => {
+                if (!o.createdAt) return false;
+                const orderDateStr = getLocalYYYYMMDD(o.createdAt);
+                return orderDateStr === targetDateStr && o.status !== 'cancelled';
+            }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
             container.innerHTML = `
                 <div class="animate-slideIn">
-                    <div class="flex items-center justify-between mb-6 border-b border-theme-beige pb-4">
-                        <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📋 Pedidos de Hoy</h2>
-                        <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
-                            Activos: ${activeOrders.length}
-                        </span>
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 border-b border-theme-beige pb-4 gap-4">
+                        
+                        <div class="flex items-center gap-3">
+                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📋 Historial de Pedidos</h2>
+                            <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
+                                ${activeOrders.length} tickets
+                            </span>
+                        </div>
+                        
+                        <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-theme-beige shadow-sm">
+                            <span class="text-xl">📅</span>
+                            <input type="date" id="ordersDatePicker" value="${window.selectedOrdersDate}" 
+                                onchange="changeOrdersDate(this.value)"
+                                class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
+                            
+                            ${window.selectedOrdersDate !== todayLocalStr ? 
+                                `<button onclick="changeOrdersDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
+                            : ''}
+                        </div>
+                        
                     </div>
                     
                     <div class="space-y-4">
@@ -4321,7 +4360,7 @@ function saveNewProduct() {
                                     </button>
                                 </div>
                             </div>
-                        `).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados el día de hoy.</p>'}
+                        `).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>'}
                     </div>
                 </div>
             `;
@@ -4605,26 +4644,56 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-       // ==================== TICKET HISTORY MODULE ====================
+       // ==================== TICKET HISTORY MODULE (CON CALENDARIO CORREGIDO) ====================
        function renderTicketHistory(container) {
-            // Filtro Diario Inteligente: Solo muestra ventas generadas el día de hoy
-            const todayStr = new Date().toDateString();
-            const todaySales = state.sales
-                .filter(s => new Date(s.timestamp).toDateString() === todayStr)
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            const getLocalYYYYMMDD = (dateObj) => {
+                const d = new Date(dateObj);
+                if (isNaN(d)) return "";
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+
+            const todayLocalStr = getLocalYYYYMMDD(new Date());
+
+            if (typeof window.selectedTicketsDate === 'undefined' || !window.selectedTicketsDate) {
+                window.selectedTicketsDate = todayLocalStr; 
+            }
+
+            const targetDateStr = window.selectedTicketsDate;
+
+            const activeSales = state.sales.filter(s => {
+                if (!s.timestamp) return false;
+                const saleDateStr = getLocalYYYYMMDD(s.timestamp);
+                return saleDateStr === targetDateStr;
+            }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
             container.innerHTML = `
                 <div class="animate-slideIn h-full flex flex-col">
-                    <div class="flex items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4">
-                        <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">🧾 Tickets de Hoy</h2>
-                        <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
-                            Total: ${todaySales.length} tickets
-                        </span>
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4 gap-4">
+                        <div class="flex items-center gap-3">
+                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">🧾 Historial de Tickets</h2>
+                            <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
+                                Total: ${activeSales.length}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-theme-beige shadow-sm">
+                            <span class="text-xl">📅</span>
+                            <input type="date" id="ticketsDatePicker" value="${window.selectedTicketsDate}" 
+                                onchange="changeTicketsDate(this.value)"
+                                class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
+                            
+                            ${window.selectedTicketsDate !== todayLocalStr ? 
+                                `<button onclick="changeTicketsDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
+                            : ''}
+                        </div>
                     </div>
                     
                     <div class="space-y-4 flex-1 overflow-auto scrollbar-thin pr-2 pb-4">
-                        ${todaySales.length === 0 ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay cobros registrados el día de hoy.</p>' : 
-                        todaySales.map(sale => `
+                        ${activeSales.length === 0 ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay cobros registrados en esta fecha.</p>' : 
+                        activeSales.map(sale => `
                             <div class="glass bg-white/80 border border-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
                                 <div>
                                     <p class="font-extrabold text-theme-text text-lg">Ticket #${sale.orderId.toString().slice(-4)}</p>
@@ -6091,6 +6160,138 @@ function payExistingOrder(orderId, method) {
             saveToStorage();
             showToast('✅ Número de WhatsApp vinculado', 'success');
         }
+
+        // ==================== CONTROLADORES DE FECHA ====================
+        function changeOrdersDate(dateStr) {
+            window.selectedOrdersDate = dateStr;
+            renderOrders(document.getElementById('contentArea'));
+        }
+        function changeTicketsDate(dateStr) {
+            window.selectedTicketsDate = dateStr;
+            renderTicketHistory(document.getElementById('contentArea'));
+        }
+
+        // ==================== GESTOR DE CATEGORÍAS DE INVENTARIO (CON AUTO-MIGRACIÓN) ====================
+        function manageInventoryCategoriesModal() {
+            // Seguridad inicial
+            if (!state.inventoryCategories) state.inventoryCategories = [];
+
+            // 🛠️ MIGRACIÓN 1: Si tus categorías viejas eran simple texto, las convertimos a formato profesional
+            if (state.inventoryCategories.length > 0 && typeof state.inventoryCategories[0] === 'string') {
+                state.inventoryCategories = state.inventoryCategories.map((name, index) => ({
+                    id: index + 1,
+                    name: name
+                }));
+            }
+
+            // 🛠️ AUTO-DESCUBRIMIENTO: Escanea tus insumos para recuperar categorías "perdidas"
+            if (state.inventory && state.inventory.length > 0) {
+                let categoriesChanged = false;
+                state.inventory.forEach(item => {
+                    if (item.category) {
+                        // Busca si la categoría del insumo ya existe en nuestra nueva lista (por ID o por Nombre)
+                        const exists = state.inventoryCategories.find(c => c.id === item.category || c.name === item.category);
+                        if (!exists) {
+                            const newId = state.inventoryCategories.length > 0 ? Math.max(...state.inventoryCategories.map(c => c.id)) + 1 : 1;
+                            state.inventoryCategories.push({ id: newId, name: item.category });
+                            categoriesChanged = true;
+                        }
+                    }
+                });
+                if (categoriesChanged) saveToStorage(); // Guarda los datos recuperados
+            }
+
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/95 rounded-3xl p-5 md:p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-theme-beige">
+                    <div class="flex justify-between items-center mb-5 border-b border-theme-beige pb-3">
+                        <h3 class="text-lg md:text-xl font-black text-theme-greenDark flex items-center gap-2">📦 Categorías de Insumos</h3>
+                        <button onclick="closeModal()" class="text-gray-400 hover:text-red-500 font-bold text-2xl transition leading-none">&times;</button>
+                    </div>
+                    
+                    <p class="text-xs font-medium text-theme-textMuted mb-3">Edita el nombre o elimina las categorías que ya no uses.</p>
+                    
+                    <div class="max-h-60 overflow-y-auto scrollbar-thin pr-2 space-y-2 mb-5">
+                        ${state.inventoryCategories.length === 0 ? '<p class="text-center text-sm font-bold text-gray-400 py-6">No hay categorías registradas</p>' : ''}
+                        ${state.inventoryCategories.map(cat => `
+                            <div class="flex items-center justify-between p-3 rounded-xl bg-theme-bg border border-theme-beige shadow-sm transition hover:shadow-md">
+                                <span class="font-extrabold text-theme-text text-sm">${cat.name}</span>
+                                <div class="flex gap-1.5">
+                                    <button onclick="editInventoryCategory(${cat.id})" class="p-2 bg-blue-50 border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm" title="Editar Nombre">✏️</button>
+                                    <button onclick="deleteInventoryCategory(${cat.id})" class="p-2 bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition shadow-sm" title="Eliminar Categoría">🗑️</button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <div class="pt-4 border-t border-theme-beige flex gap-2">
+                        <input type="text" id="newInvCatName" placeholder="Nueva categoría..." class="flex-1 px-4 py-2.5 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green font-bold text-sm shadow-inner text-theme-text">
+                        <button onclick="addInventoryCategoryFromModal()" class="px-5 py-2.5 bg-theme-green text-white font-extrabold rounded-xl shadow-md hover:bg-theme-greenDark transition text-sm">Agregar</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        // Esta función se queda igual
+        function addInventoryCategoryFromModal() {
+            const input = document.getElementById('newInvCatName');
+            const name = input.value.trim();
+            if (!name) return;
+            
+            const newId = state.inventoryCategories.length > 0 ? Math.max(...state.inventoryCategories.map(c => c.id)) + 1 : 1;
+            state.inventoryCategories.push({ id: newId, name: name });
+            saveToStorage();
+            showToast('✅ Categoría agregada', 'success');
+            manageInventoryCategoriesModal(); 
+            if (currentView === 'inventory') renderInventory(document.getElementById('contentArea'));
+        }
+
+        // Esta función se queda igual
+        function editInventoryCategory(id) {
+            const cat = state.inventoryCategories.find(c => c.id === id);
+            if (!cat) return;
+            const newName = prompt("📝 Ingresa el nuevo nombre para la categoría:", cat.name);
+            if (newName && newName.trim() !== "" && newName !== cat.name) {
+                // Actualizamos el nombre en la lista de categorías
+                const oldName = cat.name;
+                cat.name = newName.trim();
+                
+                // 🛠️ MIGRACIÓN: Actualizamos también todos los insumos que usaban el nombre viejo
+                if (state.inventory) {
+                    state.inventory.forEach(item => {
+                        if (item.category === oldName) item.category = cat.name;
+                    });
+                }
+                
+                saveToStorage();
+                showToast('✅ Categoría actualizada', 'success');
+                manageInventoryCategoriesModal(); 
+                if (currentView === 'inventory') renderInventory(document.getElementById('contentArea'));
+            }
+        }
+
+        function deleteInventoryCategory(id) {
+            const cat = state.inventoryCategories.find(c => c.id === id);
+            if (!cat) return;
+
+            // 🛡️ Candado de Seguridad Reforzado: Busca coincidencias tanto por ID numérico como por texto viejo
+            const inUse = state.inventory && state.inventory.some(item => item.category === id || item.category === cat.name);
+            
+            if (inUse) {
+                alert("⚠️ ACCIÓN DENEGADA: No puedes eliminar esta categoría porque hay insumos registrados dentro de ella. Por favor, elimina esos insumos o cámbialos a otra categoría primero.");
+                return;
+            }
+            
+            if (confirm("🗑️ ¿Estás totalmente seguro de que deseas eliminar esta categoría?")) {
+                state.inventoryCategories = state.inventoryCategories.filter(c => c.id !== id);
+                saveToStorage();
+                showToast('✅ Categoría eliminada', 'success');
+                manageInventoryCategoriesModal(); 
+                if (currentView === 'inventory') renderInventory(document.getElementById('contentArea'));
+            }
+        }
+   
     </script>
 </body>
 
