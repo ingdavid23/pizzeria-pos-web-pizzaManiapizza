@@ -241,6 +241,20 @@
             -webkit-user-select: none; /* Evita que el celular intente seleccionar texto */
             user-select: none;
         }
+
+        @media print {
+    @page {
+        /* Fuerza el tamaño a 80mm de ancho y alto automático para que no corte a medias */
+        size: 80mm auto; 
+        /* Elimina los márgenes del navegador para que no salga la URL ni la fecha arriba/abajo */
+        margin: 0mm; 
+    }
+    
+    body {
+        width: 80mm;
+        margin: 0 auto;
+    }
+}
     </style>
     <style>
         body {
