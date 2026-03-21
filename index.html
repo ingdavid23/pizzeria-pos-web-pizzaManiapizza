@@ -242,19 +242,39 @@
             user-select: none;
         }
 
+        /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
         @media print {
-    @page {
-        /* Fuerza el tamaño a 80mm de ancho y alto automático para que no corte a medias */
-        size: 80mm auto; 
-        /* Elimina los márgenes del navegador para que no salga la URL ni la fecha arriba/abajo */
-        margin: 0mm; 
-    }
-    
-    body {
-        width: 80mm;
-        margin: 0 auto;
-    }
-}
+            @page {
+                margin: 0 !important; /* Elimina el margen físico del navegador */
+                size: 80mm auto; /* Le dice que el alto es infinito (rollo) */
+            }
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                /* Forzamos a que todo empiece desde la esquina superior izquierda */
+                align-items: flex-start !important; 
+                justify-content: flex-start !important;
+                height: auto !important;
+                min-height: 0 !important;
+                background-color: white !important;
+            }
+            /* Ocultamos todo lo de la pantalla que no sea el ticket */
+            body * {
+                visibility: hidden;
+            }
+            /* Solo hacemos visible el contenedor del ticket y lo pegamos arriba */
+            #printArea, #printArea * {
+                visibility: visible;
+            }
+            #printArea {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+        }
     </style>
     <style>
         body {
@@ -1816,15 +1836,17 @@ function processPayment(method) {
             }
 
             modal.innerHTML = `
-                <div class="glass bg-black/60 p-4 md:p-8 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center md:rounded-3xl overflow-y-auto scrollbar-thin">
-                    <div class="bg-white text-black p-5 w-full max-w-[300px] font-mono shadow-2xl relative mx-auto" id="printArea">
-                        <div class="text-center border-b-2 border-dashed border-gray-400 pb-4 mb-4">
-                            <h3 class="text-2xl font-bold uppercase tracking-widest mb-1">PizzaManía</h3>
-                            <p class="text-[10px] uppercase">Ticket de Venta</p>
-                            <p class="text-[10px] uppercase">Roberto Morales Muciño</p>
-                            <p class="text-[10px] uppercase">MOMR7707196C1</p>
-                            <p class="text-[10px] uppercase">11a. Calle Pte. No 62. C.P 30068</p>
-                            <p class="text-[10px] uppercase">Comitan de Domiguez Chis.</p>
+                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin">
+                    
+                    <div class="bg-white text-black p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
+                        
+                        <div class="text-center border-b-2 border-dashed border-gray-400 pb-4 mb-4 print:pb-2 print:mb-2 print:mt-0">
+                            <h3 class="text-2xl font-bold uppercase tracking-widest mb-1 print:mt-0">PizzaManía</h3>
+                            <p class="text-[10px] uppercase print:leading-tight">Ticket de Venta</p>
+                            <p class="text-[10px] uppercase print:leading-tight">Roberto Morales Muciño</p>
+                            <p class="text-[10px] uppercase print:leading-tight">MOMR7707196C1</p>
+                            <p class="text-[10px] uppercase print:leading-tight">11a. Calle Pte. No 62. C.P 30068</p>
+                            <p class="text-[10px] uppercase print:leading-tight">Comitán de Domínguez, Chis.</p>
                             <p class="text-[10px] mt-1">${new Date(sale.timestamp).toLocaleString('es-MX')}</p>
                             <p class="text-[10px] mt-1 font-bold">TICKET #${sale.orderId.toString().slice(-4)}</p>
                         </div>
