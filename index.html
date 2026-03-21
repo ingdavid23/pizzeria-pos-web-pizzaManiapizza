@@ -1185,7 +1185,7 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                                         ${c.icon} ${c.name}
                                     </button>
                                 `).join('')}
-                                <div id="btn-half-pos-container" style="display: ${currentPOSCategory === 'all' ? (state.productCategories.some(c => c.allowHalfAndHalf) ? 'flex' : 'none') : (state.productCategories.find(c => c.id === currentPOSCategory)?.allowHalfAndHalf ? 'flex' : 'none')};" class="items-center">
+                                <div id="btn-half-pos-container" class="${currentPOSCategory === 'all' ? (state.productCategories.some(c => c.allowHalfAndHalf === true) ? 'flex' : 'hidden') : (state.productCategories.find(c => c.id === currentPOSCategory)?.allowHalfAndHalf === true ? 'flex' : 'hidden')} items-center">
                                     <div class="w-px h-6 bg-theme-beige mx-1"></div>
                                     <button onclick="showHalfAndHalfModal()" class="px-3 py-2 rounded-xl text-xs md:text-sm transition font-bold border-2 border-[#F3A70D] text-[#F3A70D] hover:bg-[#F3A70D] hover:text-white whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1">
                                         🌗 Crear Mitad y Mitad
@@ -1397,12 +1397,9 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                 `;
             }).join('') || '<p class="col-span-full text-center text-theme-textMuted py-8">No hay productos en esta categoría</p>';
         }
-
-        // AQUÍ ESTÁ LA NUEVA FUNCIÓN CORREGIDA
         function filterPOSProducts(category) {
             currentPOSCategory = category;
             
-            // Limitamos la búsqueda SOLO a botones y agregamos "pos-" para que no choque con modales
             document.querySelectorAll('button[id^="pos-cat-"]').forEach(btn => {
                 btn.className = 'px-3 py-2 rounded-xl text-xs md:text-sm transition font-medium border border-white whitespace-nowrap shrink-0 bg-white/60 hover:bg-white/90 text-theme-textMuted';
             });
@@ -1411,20 +1408,25 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
             if (activeBtn) {
                 activeBtn.className = 'px-3 py-2 rounded-xl text-xs md:text-sm transition font-medium border border-white whitespace-nowrap shrink-0 bg-theme-green text-white shadow-md hover:bg-theme-greenDark';
             }
-            
-            // 🛡️ LÓGICA BLINDADA: Oculta o muestra el botón dependiendo de la pestaña
+
+            // 🛡️ LÓGICA BLINDADA CON TAILWIND (MOSTRADOR)
             const containerHalf = document.getElementById('btn-half-pos-container');
             if (containerHalf) {
                 let showBtn = false;
                 if (category === 'all') {
-                    // En "Todo", muestra si al menos una categoría lo tiene activo
                     showBtn = state.productCategories.some(c => c.allowHalfAndHalf === true);
                 } else {
-                    // En una específica, verifica solo esa
                     const catObj = state.productCategories.find(c => c.id === category);
                     showBtn = catObj ? catObj.allowHalfAndHalf === true : false;
                 }
-                containerHalf.style.display = showBtn ? 'flex' : 'none';
+                
+                if (showBtn) {
+                    containerHalf.classList.remove('hidden');
+                    containerHalf.classList.add('flex');
+                } else {
+                    containerHalf.classList.remove('flex');
+                    containerHalf.classList.add('hidden');
+                }
             }
             
             document.getElementById('posProducts').innerHTML = renderPOSProducts(category);
@@ -2273,7 +2275,7 @@ function processPayment(method) {
 
                     <div class="flex gap-4 flex-col lg:flex-row flex-1 min-h-0 min-w-0 pb-1 w-full overflow-hidden">
                         
-                        <div class="flex-1 flex flex-col min-h-0 min-w-0 bg-white/50 rounded-2xl p-2 md:p-4 border border-white shadow-sm overflow-hidden">
+                      <div class="flex-1 flex flex-col min-h-0 min-w-0 bg-white/50 rounded-2xl p-2 md:p-4 border border-white shadow-sm overflow-hidden">
                             <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2 shrink-0">
                                 <h4 class="font-bold text-theme-text text-sm md:text-base">Menú de Productos</h4>
                                 <div class="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1 w-full sm:w-auto">
@@ -2283,11 +2285,14 @@ function processPayment(method) {
                                             ${c.icon} ${c.name}
                                         </button>
                                     `).join('')}
-                                    <div class="w-px h-5 bg-theme-beige mx-1"></div>
-                                    <button onclick="showHalfAndHalfModal(${table.id})" class="px-3 py-1.5 md:py-2 rounded-xl text-[11px] md:text-xs transition font-bold border-2 border-[#F3A70D] text-[#F3A70D] hover:bg-[#F3A70D] hover:text-white whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1">
-                                        🌗 Mitad y Mitad
-                                    </button>
-                                </div>
+                                    
+                                    <div id="btn-half-table-container" class="${currentTableCategory === 'all' ? (state.productCategories.some(c => c.allowHalfAndHalf === true) ? 'flex' : 'hidden') : (state.productCategories.find(c => c.id === currentTableCategory)?.allowHalfAndHalf === true ? 'flex' : 'hidden')} items-center">
+                                        <div class="w-px h-5 bg-theme-beige mx-1"></div>
+                                        <button onclick="showHalfAndHalfModal(${table.id})" class="px-3 py-1.5 md:py-2 rounded-xl text-[11px] md:text-xs transition font-bold border-2 border-[#F3A70D] text-[#F3A70D] hover:bg-[#F3A70D] hover:text-white whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1">
+                                            🌗 Mitad y Mitad
+                                        </button>
+                                    </div>
+                                    </div>
                             </div>
                             <div id="tableProductsContainer" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3 overflow-y-auto overflow-x-hidden flex-1 scrollbar-thin pr-1 pb-2 content-start w-full">
                                 ${renderTableProductsHTML(table.id, currentTableCategory)}
@@ -2383,15 +2388,17 @@ function processPayment(method) {
         }
         function filterTableProducts(tableId, category) {
             currentTableCategory = category;
+            
             document.querySelectorAll('[id^="table-cat-"]').forEach(btn => {
                 btn.className = 'px-3 py-1.5 md:py-2 rounded-xl text-[11px] md:text-xs transition font-bold border border-white whitespace-nowrap shrink-0 bg-white/60 hover:bg-white/90 text-theme-textMuted';
             });
+            
             const activeBtn = document.getElementById(`table-cat-${category}`);
             if (activeBtn) {
                 activeBtn.className = 'px-3 py-1.5 md:py-2 rounded-xl text-[11px] md:text-xs transition font-bold border border-white whitespace-nowrap shrink-0 bg-theme-green text-white shadow-md hover:bg-theme-greenDark';
             }
 
-            // 🛡️ LÓGICA BLINDADA PARA MESEROS
+            // 🛡️ LÓGICA BLINDADA CON TAILWIND (MESEROS)
             const containerHalf = document.getElementById('btn-half-table-container');
             if (containerHalf) {
                 let showBtn = false;
@@ -2401,7 +2408,14 @@ function processPayment(method) {
                     const catObj = state.productCategories.find(c => c.id === category);
                     showBtn = catObj ? catObj.allowHalfAndHalf === true : false;
                 }
-                containerHalf.style.display = showBtn ? 'flex' : 'none';
+                
+                if (showBtn) {
+                    containerHalf.classList.remove('hidden');
+                    containerHalf.classList.add('flex');
+                } else {
+                    containerHalf.classList.remove('flex');
+                    containerHalf.classList.add('hidden');
+                }
             }
 
             document.getElementById('tableProductsContainer').innerHTML = renderTableProductsHTML(tableId, category);
