@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="es" class="h-full">
 
@@ -2151,21 +2152,23 @@ function processPayment(method) {
             closeModal();
         }
 
-        // ==================== WAITER MODULE ====================
-        // ==================== WAITER MODULE (VISUAL FLOOR PLAN) ====================
+        // ==================== WAITER MODULE (VISUAL FLOOR PLAN SINCRONIZADO) ====================
         function renderWaiter(container) {
-            // Asegurarnos de que las mesas viejas tengan coordenadas iniciales para no romperse
+            // Asegurarnos de que las mesas lean las variables de Porcentaje (xP, yP)
             state.tables.forEach((t, i) => {
-                if (t.x === undefined) t.x = (i % 5) * 130 + 30;
-                if (t.y === undefined) t.y = Math.floor(i / 5) * 130 + 30;
+                if (t.xP === undefined) t.xP = (i % 3) * 30 + 15;
+                if (t.yP === undefined) t.yP = Math.floor(i / 3) * 20 + 15;
             });
 
             container.innerHTML = `
                 <div class="animate-slideIn h-full flex flex-col">
                     <h2 class="text-2xl font-bold mb-4 flex items-center gap-3 text-theme-greenDark shrink-0">🍽️ Plano de Mesas</h2>
                     
-                    <div class="flex-1 overflow-auto glass rounded-3xl border border-white shadow-sm p-4 bg-[#f8fafc]">
-                        <div class="relative min-w-[1000px] min-h-[700px] bg-white/80 rounded-2xl shadow-inner border-2 border-dashed border-gray-300" id="waiterFloorPlan">
+                    <div class="flex-1 overflow-auto glass rounded-3xl border border-white shadow-sm p-2 md:p-4 bg-[#f8fafc]">
+                        <div class="relative min-w-[800px] md:min-w-[1000px] min-h-[600px] md:min-h-[700px] bg-white/80 rounded-2xl shadow-inner border-2 border-dashed border-gray-300 overflow-hidden" id="waiterFloorPlan">
+                            
+                            <div class="absolute top-0 left-1/2 -translate-x-1/2 bg-gray-300 text-gray-600 px-6 py-1 rounded-b-xl font-bold text-xs uppercase tracking-wider z-0">Cocina / Barra</div>
+
                             ${state.tables.map(table => {
                                 const activeOrder = state.orders.find(o => o.tableId === table.id && o.status !== 'delivered' && o.status !== 'cancelled');
                                 
@@ -2189,11 +2192,11 @@ function processPayment(method) {
 
                                 return `
                                     <div onclick="selectTable(${table.id})" 
-                                        class="absolute w-28 h-28 rounded-full border-4 flex flex-col items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-105 shadow-md ${bgColor} ${pulseEffect}"
-                                        style="left: ${table.x}px; top: ${table.y}px;">
-                                        <span class="font-black text-xl ${textColor}">${table.name}</span>
-                                        <span class="text-xs font-bold ${textColor} opacity-70 mb-1">${table.capacity} sillas</span>
-                                        ${activeOrder ? `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/90 ${textColor} shadow-sm border border-white">${getStatusLabel(activeOrder.status)}</span>` : ''}
+                                        class="absolute w-24 h-24 md:w-28 md:h-28 rounded-full border-4 flex flex-col items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-105 shadow-md ${bgColor} ${pulseEffect}"
+                                        style="left: ${table.xP}%; top: ${table.yP}%; transform: translate(-50%, -50%); z-10;">
+                                        <span class="font-black text-lg md:text-xl ${textColor}">${table.name}</span>
+                                        <span class="text-[10px] md:text-xs font-bold ${textColor} opacity-70 mb-1">${table.capacity} sillas</span>
+                                        ${activeOrder ? `<span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-white/90 ${textColor} shadow-sm border border-white text-center leading-tight">${getStatusLabel(activeOrder.status)}</span>` : ''}
                                     </div>
                                 `;
                             }).join('')}
