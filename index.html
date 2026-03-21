@@ -28,8 +28,8 @@
                         theme: {
                             bg: '#F5F2E9',        // Beige claro principal
                             beige: '#EAE5D9',     // Beige para bordes/fondos secundarios
-                            green: '#A7C4AA',     // Verde pastel principal
-                            greenDark: '#7A9E7E', // Verde pastel oscuro (para textos y resaltados)
+                            green: '#F3A70D',     // Verde pastel principal
+                            greenDark: '#F3A70D', // Verde pastel oscuro (para textos y resaltados)
                             text: '#4A504A',      // Gris oscuro con toque verde para texto
                             textMuted: '#849085'  // Gris claro apagado
                         }
@@ -174,7 +174,7 @@
 
         /* Botón primario en verde pastel */
         .btn-primary {
-            background: linear-gradient(135deg, #A7C4AA 0%, #8FB593 100%);
+            background: linear-gradient(135deg, #F3A70D 0%, #F3A70D 100%);
             color: white;
             transition: all 0.3s;
         }
@@ -220,12 +220,12 @@
         <div id="loginScreen" class="hidden h-full flex items-center justify-center p-4">
             <div class="glass rounded-3xl p-8 w-full max-w-md animate-slideIn border border-white shadow-2xl">
                 <div class="text-center mb-8">
-                    <img src="pza.png" alt="Logo Rufaza" class="w-32 h-32 mx-auto mb-4 object-contain drop-shadow-md rounded-2xl">
+                    <img src="mania.jpg" alt="Logo Rufaza" class="w-32 h-32 mx-auto mb-4 object-contain drop-shadow-md rounded-2xl">
                     
-                    <h1 class="text-3xl font-bold text-theme-greenDark">PizzeriaPos</h1>
+                    <h1 class="text-3xl font-bold text-theme-greenDark">PizzaManía</h1>
                     <p class="text-theme-textMuted mt-2 leading-tight">
                         Sistema de Gestión Integral <br> 
-                        <span class="text-sm">punto de venta y control de inventarios</span>
+                        <span class="text-sm">punto de venta, comandas y control de inventarios</span>
                     </p>
                 </div>
                 <div class="space-y-4">
@@ -238,9 +238,14 @@
                     </div>
                     <div>
                         <label class="block text-sm font-bold mb-2 text-theme-text">Contraseña</label>
-                        <input type="password" id="loginPass"
-                            class="w-full px-4 py-3 bg-white/80 border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green transition text-theme-text font-medium"
-                            placeholder="Ingrese su contraseña">
+                        <div class="relative">
+                            <input type="password" id="loginPass"
+                                class="w-full px-4 py-3 bg-white/80 border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green transition text-theme-text font-medium pr-12"
+                                placeholder="Ingrese su contraseña">
+                            <button type="button" onclick="togglePasswordVisibility('loginPass', 'loginPassIcon')" class="absolute inset-y-0 right-0 px-4 flex items-center text-xl text-theme-textMuted hover:text-theme-greenDark transition focus:outline-none">
+                                <span id="loginPassIcon">👁️</span>
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-bold mb-2 text-theme-text">Sucursal</label>
@@ -265,7 +270,7 @@
         <div id="mainApp" class="hidden h-full flex flex-col">
             <header class="glass border-b border-white px-3 md:px-4 py-3 flex items-center justify-between shrink-0 gap-2">
                 <div class="flex items-center gap-2 md:gap-3">
-                    <img src="pza.png" alt="Logo Rufaza" class="w-10 h-10 md:w-12 md:h-12 object-contain rounded-lg drop-shadow-sm">
+                    <img src="mania.jpg" alt="Logo Rufaza" class="w-10 h-10 md:w-12 md:h-12 object-contain rounded-lg drop-shadow-sm">
                     
                     <div>
                         <h1 class="text-lg md:text-xl font-bold text-theme-greenDark leading-tight flex items-center gap-2">
@@ -491,14 +496,18 @@ function clearAllNotifications() {
 
         async function saveToStorage() {
             try {
-                // Guarda específicamente en la sucursal seleccionada
-                await db.collection('pizzaManager').doc(currentBranch).set(state);
+                // Limpiamos las pizzas temporales de "mitad y mitad" antes de guardar en la nube
+                const cleanState = { 
+                    ...state, 
+                    products: state.products.filter(p => !p.isVirtual) 
+                };
+                
+                await db.collection('pizzaManager').doc(currentBranch).set(cleanState);
             } catch (error) {
                 console.error("Error al guardar en Firebase:", error);
                 showToast('Error al guardar datos', 'error');
             }
         }
-
         function loadFromStorage(branchId) {
             return new Promise((resolve) => {
                 if (stateUnsubscribe) {
@@ -641,6 +650,19 @@ function clearAllNotifications() {
                 overlay.style.opacity = '0';
                 setTimeout(() => overlay.remove(), 300);
             }, 2000);
+        }
+
+        // ==================== VISIBILIDAD DE CONTRASEÑAS ====================
+        function togglePasswordVisibility(inputId, iconId) {
+            const input = document.getElementById(inputId);
+            const icon = document.getElementById(iconId);
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.textContent = '🙈'; // Cambia a ojito cerrado/mono
+            } else {
+                input.type = 'password';
+                icon.textContent = '👁️'; // Cambia a ojito abierto
+            }
         }
 
         function showToast(message, type = 'info') {
@@ -1122,13 +1144,17 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3 shrink-0">
                             <h2 class="text-lg md:text-xl font-bold flex items-center gap-2 text-theme-greenDark">🛒 Punto de Venta</h2>
-                            <div class="flex gap-2 overflow-x-auto scrollbar-thin pb-1 w-full sm:w-auto">
+                           <div class="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1 w-full sm:w-auto">
                                 ${categories.map(c => `
                                     <button onclick="filterPOSProducts('${c.id}')" id="pos-cat-${c.id}" 
                                         class="px-3 py-2 rounded-xl text-xs md:text-sm transition font-medium border border-white whitespace-nowrap shrink-0 ${c.id === currentPOSCategory ? 'bg-theme-green text-white shadow-md hover:bg-theme-greenDark' : 'bg-white/60 hover:bg-white/90 text-theme-textMuted'}">
                                         ${c.icon} ${c.name}
                                     </button>
                                 `).join('')}
+                                <div class="w-px h-6 bg-theme-beige mx-1"></div>
+                                <button onclick="showHalfAndHalfModal()" class="px-3 py-2 rounded-xl text-xs md:text-sm transition font-bold border-2 border-[#F3A70D] text-[#F3A70D] hover:bg-[#F3A70D] hover:text-white whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1">
+                                    🌗 Crear Mitad y Mitad
+                                </button>
                             </div>
                         </div>
                         <div id="posProducts" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3 overflow-y-auto overflow-x-hidden flex-1 scrollbar-thin pb-4 pr-1 md:pr-2 content-start">
@@ -1173,6 +1199,114 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
             `;
         }
 
+        // ==================== MOTOR DE MITAD Y MITAD (HALF & HALF) ====================
+        function showHalfAndHalfModal(tableId = null) {
+            // Filtramos solo las pizzas que están activas
+            const pizzas = state.products.filter(p => p.category === 'pizza' && p.active);
+            
+            if (pizzas.length < 2) {
+                showToast('Necesitas al menos 2 pizzas en el menú para hacer esto', 'warning');
+                return;
+            }
+
+            const optionsHtml = pizzas.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-[#F3A70D]">
+                    <h3 class="text-xl font-black mb-1 text-theme-text flex items-center gap-2">🌗 Armar Mitad y Mitad</h3>
+                    <p class="text-sm font-medium text-theme-textMuted mb-5">El sistema promediará las recetas y cobrará el precio de la mitad más cara de manera automática.</p>
+                    
+                    <div class="space-y-4">
+                        <div class="bg-orange-50 p-3 rounded-xl border border-orange-200">
+                            <label class="block text-sm font-bold mb-1 text-orange-800">Primera Mitad (1/2)</label>
+                            <select id="half1" class="w-full px-4 py-3 bg-white border border-orange-200 rounded-lg focus:outline-none focus:border-[#F3A70D] font-bold text-theme-text shadow-sm">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                        <div class="bg-orange-50 p-3 rounded-xl border border-orange-200">
+                            <label class="block text-sm font-bold mb-1 text-orange-800">Segunda Mitad (1/2)</label>
+                            <select id="half2" class="w-full px-4 py-3 bg-white border border-orange-200 rounded-lg focus:outline-none focus:border-[#F3A70D] font-bold text-theme-text shadow-sm">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 pt-6 mt-2 border-t border-theme-beige">
+                        <button onclick="${tableId ? `selectTable(${tableId}, window.isMobileCartOpen)` : 'closeModal()'}" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="createHalfAndHalf(${tableId})" class="bg-[#F3A70D] hover:bg-orange-500 text-white py-3 rounded-xl font-bold shadow-md transition">Fusionar Pizzas</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function createHalfAndHalf(tableId) {
+            const id1 = parseInt(document.getElementById('half1').value);
+            const id2 = parseInt(document.getElementById('half2').value);
+
+            if (id1 === id2) {
+                showToast('Debes elegir dos pizzas diferentes', 'warning');
+                return;
+            }
+
+            const p1 = state.products.find(p => p.id === id1);
+            const p2 = state.products.find(p => p.id === id2);
+
+            // 1. Fusionar Ingredientes: Tomamos la mitad (qty / 2) de ambas recetas
+            const mergedIngredients = [];
+            const addHalfIng = (ingList) => {
+                if(!ingList) return;
+                ingList.forEach(ing => {
+                    const existing = mergedIngredients.find(i => i.id === ing.id);
+                    if(existing) {
+                        existing.qty += (ing.qty / 2);
+                    } else {
+                        mergedIngredients.push({ id: ing.id, qty: (ing.qty / 2) });
+                    }
+                });
+            };
+            addHalfIng(p1.ingredients);
+            addHalfIng(p2.ingredients);
+
+            // 2. Fusionar Tamaños: Si tienen tamaños (Chica, Mediana), cobramos el tamaño más caro de las dos
+            let mergedSizes = [];
+            if (p1.sizes && p1.sizes.length > 0 && p2.sizes && p2.sizes.length > 0) {
+                p1.sizes.forEach(s1 => {
+                    const s2 = p2.sizes.find(s => s.name === s1.name);
+                    if (s2) {
+                        mergedSizes.push({
+                            name: s1.name,
+                            price: Math.max(s1.price, s2.price)
+                        });
+                    }
+                });
+            }
+
+            // 3. Crear el Producto Virtual (No se subirá a la nube gracias a isVirtual)
+            const virtualId = Date.now();
+            const virtualName = `Mitad ${p1.name.replace('Pizza ', '')} / Mitad ${p2.name.replace('Pizza ', '')}`;
+            
+            const virtualProduct = {
+                id: virtualId,
+                name: virtualName,
+                category: 'custom_half', 
+                price: Math.max(p1.price, p2.price), // Cobra el precio base de la pizza más cara
+                image: null,
+                icon: '🌗',
+                ingredients: mergedIngredients,
+                sizes: mergedSizes,
+                active: false,
+                isVirtual: true // <--- ¡Esta es la llave mágica de seguridad!
+            };
+
+            // Metemos la pizza fusionada al estado para que el sistema le pueda restar el inventario exacto
+            state.products.push(virtualProduct);
+
+            // 4. Mandarlo al flujo inteligente (Si tiene tamaños, abrirá la ventana de tamaños. Si no, irá directo al carrito)
+            handleProductClick(virtualId, tableId);
+        }
+
         // Esta es la función hermana que NO debes borrar (solo asegúrate de que no la hayas eliminado accidentalmente antes)
         function renderPOSProducts(category) {
             const filtered = category === 'all'
@@ -1188,17 +1322,20 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                     ? `<img src="${p.image}" class="w-12 h-12 md:w-16 md:h-16 object-cover rounded-xl mb-1 shadow-sm shrink-0 ${!available ? 'grayscale opacity-50' : ''}">` 
                     : `<div class="text-4xl md:text-5xl mb-1 drop-shadow-sm shrink-0 ${!available ? 'grayscale opacity-50' : ''}">${p.icon || defaultIcon}</div>`;
 
+                // Renderizamos precio único o etiqueta "Desde $" si tiene tamaños
+                const priceHTML = (p.sizes && p.sizes.length > 0) 
+                    ? `<p class="${!available ? 'text-red-600' : 'text-[#F3A70D]'} font-extrabold text-sm md:text-base shrink-0 leading-none pb-1"><span class="text-[10px] text-theme-textMuted uppercase">Desde</span> $${Math.min(...p.sizes.map(s => s.price))}</p>`
+                    : `<p class="${!available ? 'text-red-600' : 'text-[#F3A70D]'} font-extrabold text-base md:text-lg shrink-0 leading-none pb-1">$${p.price}</p>`;
+
                 return `
-                    <div ${available ? `onclick="addToCart(${p.id})"` : ''} 
+                    <div ${available ? `onclick="handleProductClick(${p.id})"` : ''} 
                         class="bg-white/80 rounded-xl p-3 md:p-4 flex flex-col items-center text-center relative overflow-hidden transition-all shadow-sm border-2 min-h-[140px] md:min-h-[160px] ${available ? 'cursor-pointer card-hover hover:border-theme-green border-transparent' : 'cursor-not-allowed opacity-70 border-red-400 bg-red-50'}">
                         
                         ${!available ? '<div class="absolute top-0 left-0 w-full bg-red-500 text-white text-[10px] font-extrabold py-0.5 tracking-wider z-10">AGOTADO</div>' : ''}
-                        
                         ${imageHtml}
-                        
                         <div class="flex flex-col flex-1 justify-between w-full mt-1">
                             <h4 class="font-bold text-xs md:text-sm mb-1 leading-tight flex-1 flex items-center justify-center ${!available ? 'text-red-800' : 'text-theme-text'}">${p.name}</h4>
-                            <p class="${!available ? 'text-red-600' : 'text-theme-greenDark'} font-extrabold text-base md:text-lg shrink-0 leading-none pb-1">$${p.price}</p>
+                            ${priceHTML}
                         </div>
                     </div>
                 `;
@@ -1257,6 +1394,84 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                 }
             }
             return true;
+        }
+
+        // ==================== MOTOR DE VARIANTES Y TAMAÑOS ====================
+        function handleProductClick(productId, tableId = null) {
+            const product = state.products.find(p => p.id === productId);
+            if (!product) return;
+
+            // Si el producto tiene tamaños configurados, abrimos el Pop-up
+            if (product.sizes && product.sizes.length > 0) {
+                showSizeSelectionModal(product, tableId);
+            } else {
+                // Si es un producto normal (Ej. Coca Cola), va directo al carrito
+                if (tableId) {
+                    addToTableOrder(productId, tableId);
+                } else {
+                    addToCart(productId);
+                }
+            }
+        }
+
+        function showSizeSelectionModal(product, tableId) {
+            const modal = document.getElementById('modalContainer');
+            
+            const sizesHtml = product.sizes.map((size, index) => `
+                <button onclick="addSizedProductToCart(${product.id}, ${index}, ${tableId})" class="w-full p-4 border-2 border-theme-beige rounded-xl hover:border-[#F3A70D] hover:bg-orange-50 transition flex justify-between items-center mb-3 shadow-sm group">
+                    <span class="font-bold text-theme-text text-lg flex items-center gap-2">📏 ${size.name}</span>
+                    <span class="text-[#F3A70D] font-extrabold text-xl group-hover:scale-110 transition-transform">$${size.price}</span>
+                </button>
+            `).join('');
+
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-sm animate-slideIn shadow-2xl border-2 border-white">
+                    <h3 class="text-xl font-black mb-1 text-theme-text flex items-center gap-2">🍕 Elige el Tamaño</h3>
+                    <p class="text-sm font-medium text-theme-textMuted mb-5">Especialidad: <strong class="text-theme-greenDark">${product.name}</strong></p>
+                    
+                    <div class="space-y-2 max-h-64 overflow-y-auto scrollbar-thin pr-1">
+                        ${sizesHtml}
+                    </div>
+
+                    <div class="pt-4 mt-2 border-t border-theme-beige">
+                        <button onclick="${tableId ? `selectTable(${tableId}, window.isMobileCartOpen)` : 'closeModal()'}" class="w-full py-3.5 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function addSizedProductToCart(productId, sizeIndex, tableId) {
+            const product = state.products.find(p => p.id === productId);
+            const size = product.sizes[sizeIndex];
+            
+            // Fusionamos el nombre para el ticket (Ej. "Pizza Margarita (Familiar)")
+            const fullName = `${product.name} (${size.name})`;
+            
+            // Verificamos stock base
+            if (!canAddToCart(productId, 1)) return;
+
+            // Buscamos si ya existe este TAMAÑO EXACTO en el carrito
+            const existing = currentCart.find(item => item.productId === productId && item.name === fullName && !item.note);
+            
+            if (existing) {
+                existing.quantity++;
+            } else {
+                currentCart.push({ 
+                    productId: productId, 
+                    name: fullName, 
+                    price: size.price, 
+                    quantity: 1
+                });
+            }
+
+            // Redirigimos según de dónde vino el clic (Mesa o Mostrador)
+            if (tableId) {
+                selectTable(tableId, window.isMobileCartOpen);
+            } else {
+                updateCartDisplay();
+                closeModal();
+            }
         }
 
         function addToCart(productId) {
@@ -1510,8 +1725,12 @@ function processPayment(method) {
                 <div class="glass bg-black/60 p-4 md:p-8 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center md:rounded-3xl overflow-y-auto scrollbar-thin">
                     <div class="bg-white text-black p-5 w-full max-w-[300px] font-mono shadow-2xl relative mx-auto" id="printArea">
                         <div class="text-center border-b-2 border-dashed border-gray-400 pb-4 mb-4">
-                            <h3 class="text-2xl font-bold uppercase tracking-widest mb-1">PizzeriaPos</h3>
+                            <h3 class="text-2xl font-bold uppercase tracking-widest mb-1">PizzaManía</h3>
                             <p class="text-[10px] uppercase">Ticket de Venta</p>
+                            <p class="text-[10px] uppercase">Roberto Morales Muciño</p>
+                            <p class="text-[10px] uppercase">MOMR7707196C1</p>
+                            <p class="text-[10px] uppercase">11a. Calle Pte. No 62. C.P 30068</p>
+                            <p class="text-[10px] uppercase">Comitan de Domiguez Chis.</p>
                             <p class="text-[10px] mt-1">${new Date(sale.timestamp).toLocaleString('es-MX')}</p>
                             <p class="text-[10px] mt-1 font-bold">TICKET #${sale.orderId.toString().slice(-4)}</p>
                         </div>
@@ -1556,6 +1775,7 @@ function processPayment(method) {
                         <div class="text-center mt-5 pt-3 border-t-2 border-dashed border-gray-400 text-[10px]">
                             <p class="font-bold">¡GRACIAS POR SU PREFERENCIA!</p>
                             <p class="mt-1">Vuelva pronto</p>
+                            <p class="mt-1">Tel. 963-632-0837</p>
                         </div>
                     </div>
                     
@@ -1963,13 +2183,17 @@ function processPayment(method) {
                         <div class="flex-1 flex flex-col min-h-0 min-w-0 bg-white/50 rounded-2xl p-2 md:p-4 border border-white shadow-sm overflow-hidden">
                             <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-3 gap-2 shrink-0">
                                 <h4 class="font-bold text-theme-text text-sm md:text-base">Menú de Productos</h4>
-                                <div class="flex gap-2 overflow-x-auto scrollbar-thin pb-1 w-full sm:w-auto">
+                                <div class="flex items-center gap-2 overflow-x-auto scrollbar-thin pb-1 w-full sm:w-auto">
                                     ${categories.map(c => `
                                         <button onclick="filterTableProducts(${table.id}, '${c.id}')" id="table-cat-${c.id}" 
                                             class="px-3 py-1.5 md:py-2 rounded-xl text-[11px] md:text-xs transition font-bold border border-white whitespace-nowrap shrink-0 ${c.id === currentTableCategory ? 'bg-theme-green text-white shadow-md hover:bg-theme-greenDark' : 'bg-white/60 hover:bg-white/90 text-theme-textMuted'}">
                                             ${c.icon} ${c.name}
                                         </button>
                                     `).join('')}
+                                    <div class="w-px h-5 bg-theme-beige mx-1"></div>
+                                    <button onclick="showHalfAndHalfModal(${table.id})" class="px-3 py-1.5 md:py-2 rounded-xl text-[11px] md:text-xs transition font-bold border-2 border-[#F3A70D] text-[#F3A70D] hover:bg-[#F3A70D] hover:text-white whitespace-nowrap shrink-0 shadow-sm flex items-center gap-1">
+                                        🌗 Mitad y Mitad
+                                    </button>
                                 </div>
                             </div>
                             <div id="tableProductsContainer" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3 overflow-y-auto overflow-x-hidden flex-1 scrollbar-thin pr-1 pb-2 content-start w-full">
@@ -2046,16 +2270,19 @@ function processPayment(method) {
                     ? `<img src="${p.image}" class="w-12 h-12 md:w-16 md:h-16 object-cover rounded-xl mb-1 shadow-sm ${!available ? 'grayscale opacity-50' : ''}">` 
                     : `<span class="text-3xl drop-shadow-sm ${!available ? 'grayscale opacity-50' : ''}">${p.icon || categoryIcons[p.category] || '🍽️'}</span>`;
                 
+                const priceHTML = (p.sizes && p.sizes.length > 0) 
+                    ? `<p class="${!available ? 'text-red-600' : 'text-[#F3A70D]'} font-extrabold text-sm mt-0.5"><span class="text-[9px] text-theme-textMuted uppercase">Desde</span> $${Math.min(...p.sizes.map(s => s.price))}</p>`
+                    : `<p class="${!available ? 'text-red-600' : 'text-[#F3A70D]'} font-extrabold text-sm mt-0.5">$${p.price}</p>`;
+
                 return `
-                    <div ${available ? `onclick="addToTableOrder(${p.id}, ${tableId})"` : ''} 
+                    <div ${available ? `onclick="handleProductClick(${p.id}, ${tableId})"` : ''} 
                         class="p-2 md:p-3 rounded-xl ${available ? 'bg-white border-theme-beige hover:border-theme-green cursor-pointer' : 'bg-red-50 border-red-300 opacity-70 cursor-not-allowed'} border-2 shadow-sm transition text-center flex flex-col items-center justify-between gap-1 relative overflow-hidden min-h-[120px]">
                         
                         ${!available ? '<div class="absolute top-0 w-full bg-red-500 text-white text-[9px] font-extrabold py-0.5 tracking-wider z-10">AGOTADO</div>' : ''}
-                        
                         ${imageHtml}
                         <div class="w-full">
                             <p class="text-[11px] md:text-xs font-bold ${!available ? 'text-red-800' : 'text-theme-text'} leading-tight line-clamp-2">${p.name}</p>
-                            <p class="${!available ? 'text-red-600' : 'text-theme-greenDark'} font-extrabold text-sm mt-0.5">$${p.price}</p>
+                            ${priceHTML}
                         </div>
                     </div>
                 `;
@@ -3147,10 +3374,55 @@ function saveNewProduct() {
             renderProducts(document.getElementById('contentArea'));
         }
 
+        // ==================== VARIABLES Y MOTORES DE EDICIÓN ====================
+        let currentEditSizes = []; // Variable global para guardar los tamaños temporalmente
+
+        function renderProductSizes() {
+            const container = document.getElementById('productSizesContainer');
+            if (!container) return;
+            if (currentEditSizes.length === 0) {
+                container.innerHTML = '<p class="text-xs text-theme-textMuted text-center py-3 italic border border-dashed border-theme-beige rounded-xl">Sin tamaños configurados. Se usará el precio único.</p>';
+                return;
+            }
+            container.innerHTML = currentEditSizes.map((size, index) => `
+                <div class="flex items-center justify-between p-2 rounded-lg bg-white border border-theme-beige shadow-sm">
+                    <span class="text-sm font-bold text-theme-text flex-1">📏 ${size.name}</span>
+                    <div class="flex items-center gap-3 ml-2 shrink-0">
+                        <span class="text-sm font-extrabold text-[#F3A70D]">$${size.price}</span>
+                        <button onclick="removeSizeFromProduct(${index})" class="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition text-lg">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function addSizeToProduct() {
+            const nameInput = document.getElementById('newSizeName');
+            const priceInput = document.getElementById('newSizePrice');
+            const name = nameInput.value.trim();
+            const price = parseFloat(priceInput.value);
+
+            if (!name || isNaN(price) || price <= 0) {
+                showToast('Ingresa un nombre (Ej. Familiar) y un precio válido', 'warning'); return;
+            }
+
+            currentEditSizes.push({ name: name, price: price });
+            nameInput.value = '';
+            priceInput.value = '';
+            renderProductSizes();
+        }
+
+        function removeSizeFromProduct(index) {
+            currentEditSizes.splice(index, 1);
+            renderProductSizes();
+        }
+
         function editProduct(productId) {
             initProductCategories();
             const product = state.products.find(p => p.id === productId);
+            
+            // Cargamos datos a las variables temporales
             currentEditIngredients = JSON.parse(JSON.stringify(product.ingredients || []));
+            currentEditSizes = JSON.parse(JSON.stringify(product.sizes || []));
             
             const modal = document.getElementById('modalContainer');
             modal.innerHTML = `
@@ -3162,7 +3434,7 @@ function saveNewProduct() {
                     
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-sm font-bold mb-1 text-theme-text">Nombre</label>
+                            <label class="block text-sm font-bold mb-1 text-theme-text">Nombre de la Especialidad</label>
                             <input type="text" id="editProdName" value="${product.name}" class="w-full px-4 py-2 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium">
                         </div>
 
@@ -3181,13 +3453,25 @@ function saveNewProduct() {
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-bold mb-1 text-theme-text">Precio ($)</label>
+                                <label class="block text-sm font-bold mb-1 text-theme-text">Precio Único Base ($)</label>
                                 <input type="number" id="editProdPrice" value="${product.price}" class="w-full px-4 py-2 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium">
                             </div>
                         </div>
+
+                        <div class="mt-4 border-t border-theme-beige pt-4">
+                            <h4 class="font-bold text-theme-text mb-1 flex items-center gap-2">🍕 Tamaños Múltiples (Opcional)</h4>
+                            <p class="text-[10px] text-theme-textMuted mb-3 font-medium leading-tight">Si agregas tamaños aquí (Ej. Chica $100, Familiar $200), el precio base de arriba será ignorado.</p>
+                            
+                            <div class="flex gap-2 mb-3 bg-theme-bg p-2 rounded-xl border border-theme-beige">
+                                <input type="text" id="newSizeName" placeholder="Ej. Mediana" class="flex-1 px-3 py-2 bg-white border border-theme-beige rounded-lg focus:outline-none focus:border-[#F3A70D] text-sm font-bold">
+                                <input type="number" id="newSizePrice" placeholder="Precio $" class="w-24 px-2 py-2 bg-white border border-theme-beige rounded-lg focus:outline-none focus:border-[#F3A70D] text-sm text-center font-bold">
+                                <button onclick="addSizeToProduct()" class="bg-[#F3A70D] hover:bg-orange-500 text-white px-3 py-2 rounded-lg font-bold transition shadow-sm">➕</button>
+                            </div>
+                            <div id="productSizesContainer" class="space-y-2 max-h-32 overflow-y-auto scrollbar-thin pr-1"></div>
+                        </div>
                         
                         <div class="mt-4 border-t border-theme-beige pt-4">
-                            <h4 class="font-bold text-theme-text mb-3 flex items-center gap-2">📝 Receta / Insumos a descontar</h4>
+                            <h4 class="font-bold text-theme-text mb-3 flex items-center gap-2">📝 Receta Base / Insumos a descontar</h4>
                             
                             <div class="flex gap-2 mb-3 bg-theme-bg p-2 rounded-xl border border-theme-beige flex-wrap sm:flex-nowrap">
                                 <div class="flex-1 min-w-[150px]">
@@ -3213,139 +3497,46 @@ function saveNewProduct() {
 
                         <div class="grid grid-cols-2 gap-3 pt-4 border-t border-theme-beige mt-2">
                             <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
-                            <button onclick="updateProduct('${productId}')" class="btn-primary py-3 rounded-xl font-bold shadow-md">Guardar Cambios</button>
+                            <button onclick="updateProduct('${productId}')" class="bg-[#F3A70D] text-white hover:bg-orange-500 py-3 rounded-xl font-bold shadow-md">Guardar Cambios</button>
                         </div>
                     </div>
                 </div>
             `;
             modal.classList.remove('hidden');
+            renderProductSizes(); // Pintamos los tamaños al abrir
             renderRecipeItems();
         }
 
-        function renderRecipeItems() {
-            const container = document.getElementById('recipeItemsContainer');
-            if (!container) return;
-            if (currentEditIngredients.length === 0) {
-                container.innerHTML = '<p class="text-sm text-theme-textMuted text-center py-4 italic">No hay insumos asignados.</p>';
-                return;
-            }
-            container.innerHTML = currentEditIngredients.map((ing, index) => {
-                const invItem = state.inventory.find(i => i.id === ing.id);
-                const name = invItem ? invItem.name : '<span class="text-red-500">Insumo eliminado</span>';
-                const unit = invItem ? invItem.unit : '';
-                
-                // Mostrar también en gramos/ml si aplica, para facilitar la lectura
-                let displayQty = `${ing.qty} ${unit}`;
-                if (unit === 'kg') displayQty += ` <span class="text-[10px] text-theme-textMuted font-medium block leading-none mt-1">(${Number((ing.qty * 1000).toFixed(0))}g)</span>`;
-                if (unit === 'lt') displayQty += ` <span class="text-[10px] text-theme-textMuted font-medium block leading-none mt-1">(${Number((ing.qty * 1000).toFixed(0))}ml)</span>`;
-
-                return `
-                    <div class="flex items-center justify-between p-2 rounded-lg bg-white border border-theme-beige shadow-sm">
-                        <span class="text-sm font-medium text-theme-text truncate flex-1">${name}</span>
-                        <div class="flex items-center gap-3 ml-2 shrink-0">
-                            <div class="text-sm font-extrabold text-theme-greenDark bg-green-50 px-2 py-1 rounded border border-green-100 text-center">${displayQty}</div>
-                            <button onclick="removeIngredientFromRecipe(${index})" class="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition text-lg">🗑️</button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function addIngredientToRecipe() {
-            const select = document.getElementById('recipeIngredientSelect');
-            const qtyInput = document.getElementById('recipeIngredientQty');
-            const unitSelect = document.getElementById('recipeIngredientUnit');
-            
-            const invId = parseInt(select.value);
-            let qty = parseFloat(qtyInput.value);
-
-            if (!invId || isNaN(qty) || qty <= 0) {
-                showToast('Selecciona un insumo y una cantidad mayor a 0', 'warning');
-                return;
-            }
-
-            const invItem = state.inventory.find(i => i.id === invId);
-            if (!invItem) return;
-
-            // 💡 LÓGICA DE CONVERSIÓN INTELIGENTE
-            const selectedUnit = unitSelect.value;
-            
-            if (selectedUnit === 'g' && invItem.unit === 'kg') {
-                qty = qty / 1000; // Convierte de gramos a kilos
-            } else if (selectedUnit === 'ml' && invItem.unit === 'lt') {
-                qty = qty / 1000; // Convierte de mililitros a litros
-            } else if ((selectedUnit === 'g' && invItem.unit !== 'kg') || (selectedUnit === 'ml' && invItem.unit !== 'lt')) {
-                // Si el usuario intentó poner gramos a una Coca-Cola que se vende por "pza" (pieza)
-                showToast('Unidad incompatible. Se guardó como cantidad base.', 'info');
-            }
-
-            // Si el insumo ya está en la receta, solo le sumamos la cantidad
-            const existing = currentEditIngredients.find(i => i.id === invId);
-            if (existing) {
-                existing.qty += qty;
-            } else {
-                currentEditIngredients.push({ id: invId, qty: qty });
-            }
-
-            // Limpiamos los inputs
-            select.value = '';
-            qtyInput.value = '';
-            unitSelect.value = 'auto'; // Reiniciamos el selector a la unidad base
-            
-            // Actualizamos la vista
-            renderRecipeItems();
-        }
-
-        
-
-        function removeIngredientFromRecipe(index) {
-            currentEditIngredients.splice(index, 1);
-            renderRecipeItems();
-        }
-
-        // --- Al guardar, aplicamos la receta al producto real ---
         function updateProduct(productId) {
             try {
                 const product = state.products.find(p => String(p.id) === String(productId));
-                
-                if (!product) {
-                    showToast('❌ Error: No se encontró el producto.', 'error');
-                    return;
-                }
+                if (!product) return;
 
-                const nameInput = document.getElementById('editProdName');
-                const catInput = document.getElementById('editProdCategory');
-                const priceInput = document.getElementById('editProdPrice');
+                product.name = document.getElementById('editProdName').value.trim();
+                product.category = document.getElementById('editProdCategory').value;
+                product.price = parseFloat(document.getElementById('editProdPrice').value) || product.price;
+
                 const hiddenImgInput = document.getElementById('hiddenImageBase64');
                 const urlInput = document.getElementById('editProdImageUrl');
-
-                if (!nameInput || !priceInput) {
-                    showToast('❌ Error: Falta un campo.', 'error');
-                    return;
-                }
-
-                product.name = nameInput.value.trim();
-                product.category = catInput.value;
-                product.price = parseFloat(priceInput.value) || product.price;
-                
                 const imageBase64 = hiddenImgInput ? hiddenImgInput.value : '';
                 const imageUrl = urlInput ? urlInput.value.trim() : '';
                 
-                if (imageBase64) {
-                    product.image = imageBase64;
-                } else if (imageUrl) {
-                    product.image = imageUrl;
-                }
+                if (imageBase64) product.image = imageBase64;
+                else if (imageUrl) product.image = imageUrl;
                 
+                // Guardamos los arrays de receta y tamaños
                 product.ingredients = JSON.parse(JSON.stringify(currentEditIngredients));
+                product.sizes = JSON.parse(JSON.stringify(currentEditSizes));
 
                 saveToStorage(); 
-                syncMenuToBranches(); // 🚀 Envía la edición a las demás sucursales
+                if (typeof syncMenuToBranches === 'function') syncMenuToBranches();
                 
+                // Limpiamos memoria temporal
                 currentEditIngredients = []; 
+                currentEditSizes = [];
                 if (hiddenImgInput) hiddenImgInput.value = ''; 
 
-                showToast('✅ Producto actualizado en todas las sucursales', 'success'); 
+                showToast('✅ Producto y tamaños actualizados', 'success'); 
                 closeModal(); 
                 renderProducts(document.getElementById('contentArea'));
 
@@ -3376,6 +3567,8 @@ function saveNewProduct() {
             modal.classList.remove('hidden');
         }
 
+        
+
         function deleteProduct(productId) {
             const product = state.products.find(p => p.id === productId);
             if (!product) return;
@@ -3395,6 +3588,7 @@ function saveNewProduct() {
             closeModal();
             renderProducts(document.getElementById('contentArea'));
         }
+
 
         // ==================== USERS MODULE ====================
         function renderUsers(container) {
@@ -3463,9 +3657,14 @@ function saveNewProduct() {
                             <label class="block text-sm font-bold mb-2 text-theme-text">Usuario (Login)</label>
                             <input type="text" id="userUsername" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium" placeholder="Ej: jperez">
                         </div>
-                        <div>
+                       <div>
                             <label class="block text-sm font-bold mb-2 text-theme-text">Contraseña</label>
-                            <input type="password" id="userPassword" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium" placeholder="••••••">
+                            <div class="relative">
+                                <input type="password" id="userPassword" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium pr-12" placeholder="••••••">
+                                <button type="button" onclick="togglePasswordVisibility('userPassword', 'userPassIcon')" class="absolute inset-y-0 right-0 px-4 flex items-center text-lg text-theme-textMuted hover:text-theme-greenDark transition focus:outline-none">
+                                    <span id="userPassIcon">👁️</span>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm font-bold mb-2 text-theme-text">Rol</label>
@@ -3536,7 +3735,12 @@ function saveNewProduct() {
                         </div>
                         <div>
                             <label class="block text-sm font-bold mb-2 text-theme-text">Nueva contraseña</label>
-                            <input type="password" id="editUserPassword" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium" placeholder="Dejar vacío para no cambiar">
+                            <div class="relative">
+                                <input type="password" id="editUserPassword" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green text-sm font-medium pr-12" placeholder="Dejar vacío para no cambiar">
+                                <button type="button" onclick="togglePasswordVisibility('editUserPassword', 'editUserPassIcon')" class="absolute inset-y-0 right-0 px-4 flex items-center text-lg text-theme-textMuted hover:text-theme-greenDark transition focus:outline-none">
+                                    <span id="editUserPassIcon">👁️</span>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm font-bold mb-2 text-theme-text">Rol</label>
@@ -3821,7 +4025,7 @@ function saveNewProduct() {
                 const time = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
                 
                 // Armar el mensaje con formato (Negritas y Emojis)
-                let msg = `*📊 CORTE DE CAJA - PizzeriaPos*\n`;
+                let msg = `*📊 CORTE DE CAJA - PizzaManía*\n`;
                 msg += `📍 Sucursal: *${branchName}*\n`;
                 msg += `👤 Cajero: *${currentUser.name}*\n`;
                 msg += `📅 Fecha: ${today} a las ${time}\n\n`;
@@ -3987,10 +4191,12 @@ function saveNewProduct() {
                     <h3 class="text-xl font-extrabold mb-2 text-red-600">Autorización Requerida</h3>
                     <p class="text-sm text-theme-text font-medium mb-6">Para eliminar este pedido por completo de Cocina, Ventas y Reportes, ingresa la clave de administrador.</p>
                     
-                    <div class="mb-6">
-                        <input type="password" id="adminAuthPassword" class="w-full px-4 py-3 bg-white border-2 border-red-200 rounded-xl text-center text-2xl tracking-widest focus:outline-none focus:border-red-500 font-bold" placeholder="******">
+                    <div class="mb-6 relative">
+                        <input type="password" id="adminAuthPassword" class="w-full px-4 py-3 bg-white border-2 border-red-200 rounded-xl text-center text-2xl tracking-widest focus:outline-none focus:border-red-500 font-bold pr-12" placeholder="******">
+                        <button type="button" onclick="togglePasswordVisibility('adminAuthPassword', 'adminAuthPassIcon')" class="absolute inset-y-0 right-0 px-4 flex items-center text-xl text-red-400 hover:text-red-600 transition focus:outline-none">
+                            <span id="adminAuthPassIcon">👁️</span>
+                        </button>
                     </div>
-                    
                     <div class="grid grid-cols-2 gap-3">
                         <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
                         <button onclick="executeDeleteOrder(${orderId})" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl shadow-md transition">Destruir Pedido</button>
@@ -4864,7 +5070,7 @@ function payExistingOrder(orderId, method) {
                         <div style="width: 760px; margin: 0 auto; background: white; color: black; padding: 30px;" id="printMonthlyArea">
                             
                             <div class="text-center border-b-2 border-black pb-4 mb-6 break-inside-avoid">
-                                <img src="pza.png" alt="Logo Rufaza" class="w-20 h-20 mx-auto mb-2 object-contain grayscale-0 print:grayscale" onerror="this.style.display='none'">
+                                <img src="mania.png" alt="Logo Rufaza" class="w-20 h-20 mx-auto mb-2 object-contain grayscale-0 print:grayscale" onerror="this.style.display='none'">
                                 <h2 class="text-3xl font-extrabold uppercase tracking-widest text-theme-greenDark">Reporte de Resultados</h2>
                                 <p class="text-lg font-bold mt-1 text-gray-600">SUCURSAL ${typeof currentBranch !== 'undefined' && currentBranch === 'sucursal_principal' ? 'PRINCIPAL' : 'CENTRO'}</p>
                                 <p class="text-sm text-gray-500 mt-1 font-bold">Mes de proceso: ${currentMonthName}</p>
@@ -5517,7 +5723,12 @@ function payExistingOrder(orderId, method) {
                             </div>
                             <div>
                                 <label class="block text-sm font-bold mb-1 text-theme-text">Nueva Contraseña</label>
-                                <input type="password" id="branchAdminPassword" placeholder="Escribe para cambiarla..." class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-blue-500 font-bold text-theme-text">
+                                <div class="relative">
+                                    <input type="password" id="branchAdminPassword" placeholder="Escribe para cambiarla..." class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-blue-500 font-bold text-theme-text pr-12">
+                                    <button type="button" onclick="togglePasswordVisibility('branchAdminPassword', 'branchAdminPassIcon')" class="absolute inset-y-0 right-0 px-4 flex items-center text-lg text-theme-textMuted hover:text-blue-500 transition focus:outline-none">
+                                        <span id="branchAdminPassIcon">👁️</span>
+                                    </button>
+                                </div>
                                 <p class="text-[11px] font-bold text-blue-600 mt-1">Déjalo en blanco si no quieres cambiar la contraseña actual.</p>
                             </div>
                             <div class="grid grid-cols-2 gap-3 pt-4 border-t border-theme-beige mt-2">
