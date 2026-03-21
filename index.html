@@ -201,6 +201,39 @@
             z-index: 9999;
             animation: slideIn 0.3s ease-out;
         }
+
+        /* 📱 ESTILOS CRÍTICOS PARA EL EDITOR MÓVIL */
+        
+        /* 1. Evita que la pantalla rebote o haga scroll en móvil al arrastrar */
+        .stop-scrolling {
+            height: 100%;
+            overflow: hidden !important;
+            position: fixed;
+            width: 100%;
+        }
+
+        /* 2. Área de dibujo optimizada para gestos */
+        #floorPlanCanvas {
+            touch-action: none; /* Desactiva zoom y scroll nativo del navegador en esta área */
+            -webkit-user-select: none; /* Evita seleccionar texto al mantener presionado */
+            user-select: none;
+        }
+
+        /* 3. Ajuste de tamaño de mesas para dedos (un poco más grandes en móvil si es necesario) */
+        @media (max-width: 640px) {
+            .edit-table-item {
+                width: 90px !important;
+                height: 90px !important;
+            }
+            .edit-table-item .table-name {
+                font-size: 16px !important;
+            }
+            .edit-table-item .delete-btn {
+                width: 32px !important;
+                height: 32px !important;
+                font-size: 12px !important;
+            }
+        }
     </style>
     <style>
         body {
@@ -5529,89 +5562,134 @@ function payExistingOrder(orderId, method) {
             });
         });
 
-        // ==================== VISUAL FLOOR PLAN EDITOR (DRAG & DROP) ====================
+        // ==================== VISUAL FLOOR PLAN EDITOR (OPTIMIZADO MÓVIL) ====================
         let floorPlanDragTarget = null;
         let floorPlanStartX = 0, floorPlanStartY = 0;
         let floorPlanInitX = 0, floorPlanInitY = 0;
+        let isMobile = false;
 
         function showFloorPlanEditor() {
-            // Asegurarnos de que las mesas tengan coordenadas
+            // Detectar si es móvil para ajustar sensibilidades
+            isMobile = window.innerWidth < 768;
+
+            // Asegurarnos de que las mesas tengan coordenadas porcentuales por defecto
             state.tables.forEach((t, i) => {
-                if (t.x === undefined) t.x = (i % 5) * 130 + 30;
-                if (t.y === undefined) t.y = Math.floor(i / 5) * 130 + 30;
+                if (t.xP === undefined) t.xP = (i % 3) * 30 + 5; // Posiciones iniciales en %
+                if (t.yP === undefined) t.yP = Math.floor(i / 3) * 20 + 5;
             });
 
             const modal = document.getElementById('modalContainer');
             modal.innerHTML = `
-                <div class="glass bg-white/95 rounded-3xl p-4 w-[98%] max-w-6xl h-[95vh] flex flex-col shadow-2xl border-4 border-blue-300">
-                    <div class="flex justify-between items-center mb-4 shrink-0 bg-blue-50 p-4 rounded-2xl border border-blue-200">
-                        <div>
-                            <h3 class="text-xl font-extrabold text-blue-800 flex items-center gap-2">🏗️ Modo Editor de Plano</h3>
-                            <p class="text-xs font-medium text-blue-600 mt-1">Toca y arrastra las mesas para acomodarlas. Usa la 🗑️ para borrar.</p>
+                <div class="glass bg-white/95 md:rounded-3xl p-3 md:p-5 w-full h-full md:w-[98%] md:max-w-7xl md:h-[95vh] flex flex-col shadow-2xl border-t-4 md:border-4 border-blue-400 fixed inset-0 md:relative z-50 overflow-hidden">
+                    
+                    <div class="flex justify-between items-center mb-3 shrink-0 bg-blue-50 p-3 rounded-2xl border border-blue-200 gap-2">
+                        <div class="flex items-center gap-2">
+                            <button onclick="closeFloorPlanEditor()" class="md:hidden p-2 bg-white rounded-full text-blue-700 shadow border">⬅️</button>
+                            <div>
+                                <h3 class="text-lg md:text-xl font-extrabold text-blue-800">🏗️ Editor de Plano</h3>
+                                <p class="text-[11px] md:text-xs font-medium text-blue-600 mt-0.5">Mueve las mesas con el dedo. Usa 💾 al terminar.</p>
+                            </div>
                         </div>
-                        <div class="flex gap-2">
-                            <button onclick="addTable(); setTimeout(showFloorPlanEditor, 100);" class="px-4 py-2.5 bg-white border border-blue-300 rounded-xl font-bold text-blue-700 hover:bg-blue-100 transition shadow-sm">➕ Mesa</button>
-                            <button onclick="saveFloorPlan()" class="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-extrabold shadow-md hover:bg-blue-700 transition">💾 Guardar Plano</button>
+                        <div class="flex gap-1.5">
+                            <button onclick="addTable(); setTimeout(showFloorPlanEditor, 150);" class="px-3 py-2 bg-white border border-blue-300 rounded-lg font-bold text-blue-700 hover:bg-blue-100 transition shadow-sm text-xs">➕ Mesa</button>
+                            <button onclick="saveFloorPlan()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-extrabold shadow-md hover:bg-blue-700 transition text-xs">💾 Guardar</button>
                         </div>
                     </div>
                     
-                    <div class="flex-1 overflow-auto bg-gray-100 rounded-2xl shadow-inner border-2 border-dashed border-gray-400 relative select-none" id="floorPlanCanvas" 
-                        onmousemove="dragTable(event)" onmouseup="stopDragTable()" onmouseleave="stopDragTable()"
+                    <div class="flex-1 bg-gray-100 rounded-2xl shadow-inner border-2 border-dashed border-gray-400 relative overflow-hidden select-none" 
+                        id="floorPlanCanvas" 
+                        onmousemove="dragTable(event)" onmouseup="stopDragTable()"
                         ontouchmove="dragTable(event)" ontouchend="stopDragTable()">
                         
-                        <div style="width: 1200px; height: 800px; position: relative;" id="floorPlanArea">
-                            ${state.tables.map(table => `
-                                <div id="edit-table-${table.id}" data-id="${table.id}"
-                                    onmousedown="startDragTable(event, this)" ontouchstart="startDragTable(event, this)"
-                                    class="absolute w-28 h-28 rounded-full border-4 border-gray-400 bg-white flex flex-col items-center justify-center cursor-move shadow-md hover:border-blue-500 transition-colors"
-                                    style="left: ${table.x}px; top: ${table.y}px;">
-                                    <span class="font-black text-gray-800 text-xl pointer-events-none">${table.name}</span>
-                                    <span class="text-[10px] font-bold text-gray-500 pointer-events-none">${table.capacity} sillas</span>
-                                    <button onclick="confirmDeleteTable(${table.id})" class="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-8 h-8 text-sm font-bold shadow-md hover:bg-red-600 flex items-center justify-center transition-transform hover:scale-110">🗑️</button>
-                                </div>
-                            `).join('')}
-                        </div>
+                        <div class="absolute top-0 left-1/2 -translate-x-1/2 bg-gray-300 text-gray-600 px-6 py-1 rounded-b-xl font-bold text-xs uppercase tracking-wider">Cocina / Barra</div>
+
+                        ${state.tables.map(table => `
+                            <div id="edit-table-${table.id}" data-id="${table.id}"
+                                onmousedown="startDragTable(event, this)" ontouchstart="startDragTable(event, this)"
+                                class="edit-table-item absolute w-24 h-24 md:w-28 md:h-28 rounded-full border-4 border-gray-400 bg-white flex flex-col items-center justify-center cursor-move shadow-md hover:border-blue-500 transition-property[transform,border-color,shadow] duration-150 will-change-transform"
+                                style="left: ${table.xP}%; top: ${table.yP}%; transform: translate(-50%, -50%);">
+                                
+                                <span class="table-name font-black text-gray-800 text-lg md:text-xl pointer-events-none">${table.name}</span>
+                                <span class="text-[10px] md:text-xs font-bold text-gray-500 pointer-events-none">${table.capacity} sillas</span>
+                                
+                                <button onclick="confirmDeleteTable(${table.id})" class="delete-btn absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-7 h-7 md:w-8 md:h-8 text-xs md:text-sm font-bold shadow-md hover:bg-red-600 flex items-center justify-center transition-transform hover:scale-110 z-10">🗑️</button>
+                            </div>
+                        `).join('')}
                     </div>
+                    
+                    <button onclick="closeFloorPlanEditor()" class="hidden md:block mt-3 w-full py-2.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold transition text-sm">Cancelar y Cerrar</button>
                 </div>
             `;
             modal.classList.remove('hidden');
+            // 🛑 Bloquear scroll del body (CRÍTICO PARA MÓVIL)
+            document.body.classList.add('stop-scrolling');
+        }
+
+        function closeFloorPlanEditor() {
+            closeModal();
+            // ✅ Reactivar scroll del body
+            document.body.classList.remove('stop-scrolling');
         }
 
         function startDragTable(e, element) {
-            // No arrastrar si tocaste el botón de borrar
-            if (e.target.tagName === 'BUTTON') return;
+            // 1. No arrastrar si tocaste el botón de borrar (importante en móvil por dedos grandes)
+            if (e.target.closest('.delete-btn')) return;
             
             floorPlanDragTarget = element;
-            floorPlanStartX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
-            floorPlanStartY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-            floorPlanInitX = parseFloat(element.style.left) || 0;
-            floorPlanInitY = parseFloat(element.style.top) || 0;
             
+            // 2. Obtener coordenadas iniciales (maneja mouse y touch)
+            const clientX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+            const clientY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+            
+            const rect = element.getBoundingClientRect();
+            const canvasRect = document.getElementById('floorPlanCanvas').getBoundingClientRect();
+
+            // 3. Calcular offset exacto donde tocaste dentro de la mesa (en pixeles)
+            // Usamos el centro de la mesa (transform-origin) para cálculos más estables
+            floorPlanStartX = clientX - (rect.left + rect.width / 2);
+            floorPlanStartY = clientY - (rect.top + rect.height / 2);
+            
+            // 4. Feedback visual inmediato
+            element.style.transition = 'none'; // Quitar transiciones durante el arrastre
             element.style.zIndex = 1000;
             element.classList.add('scale-110', 'border-blue-500', 'shadow-2xl');
         }
 
         function dragTable(e) {
             if (!floorPlanDragTarget) return;
-            // Prevenir scroll de la pantalla completa en móviles mientras arrastras
-            if(e.type.includes('touch')) e.preventDefault(); 
             
-            const currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
-            const currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+            // Bloquear scroll nativo del navegador (doble seguridad)
+            if(e.cancelable && e.type.includes('touch')) e.preventDefault(); 
             
-            const dx = currentX - floorPlanStartX;
-            const dy = currentY - floorPlanStartY;
-            
-            // Límites matemáticos para no sacar la mesa del mapa (1200x800)
-            let newX = Math.max(0, Math.min(1088, floorPlanInitX + dx)); 
-            let newY = Math.max(0, Math.min(688, floorPlanInitY + dy));
+            const canvas = document.getElementById('floorPlanCanvas');
+            const canvasRect = canvas.getBoundingClientRect();
 
-            floorPlanDragTarget.style.left = newX + 'px';
-            floorPlanDragTarget.style.top = newY + 'px';
+            // 1. Obtener coordenadas actuales del dedo/mouse
+            const clientX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+            const clientY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+            
+            // 2. Calcular nueva posición en pixeles relativos al canvas
+            let newXpx = clientX - canvasRect.left - floorPlanStartX;
+            let newYpx = clientY - canvasRect.top - floorPlanStartY;
+            
+            // 3. Convertir pixeles a PORCENTAJE (%) del canvas (Clave de la responsividad)
+            let newXP = (newXpx / canvasRect.width) * 100;
+            let newYP = (newYpx / canvasRect.height) * 100;
+            
+            // 4. Límites matemáticos (evitar que la mesa se salga del cuadro 0% - 100%)
+            // Ajustamos un pequeño margen (5%) para que el centro no toque el borde exacto
+            newXP = Math.max(5, Math.min(95, newXP)); 
+            newYP = Math.max(5, Math.min(95, newYP));
+
+            // 5. Aplicar posición visual instantánea
+            floorPlanDragTarget.style.left = newXP + '%';
+            floorPlanDragTarget.style.top = newYP + '%';
         }
 
         function stopDragTable() {
             if (floorPlanDragTarget) {
+                // Restaurar estilos visuales
+                floorPlanDragTarget.style.transition = ''; // Reactivar transiciones de Tailwind
                 floorPlanDragTarget.style.zIndex = '';
                 floorPlanDragTarget.classList.remove('scale-110', 'border-blue-500', 'shadow-2xl');
                 floorPlanDragTarget = null;
@@ -5619,21 +5697,24 @@ function payExistingOrder(orderId, method) {
         }
 
         function saveFloorPlan() {
-            const area = document.getElementById('floorPlanArea');
-            const tablesEls = area.querySelectorAll('[id^="edit-table-"]');
+            const canvas = document.getElementById('floorPlanCanvas');
+            const tablesEls = canvas.querySelectorAll('.edit-table-item');
             
             tablesEls.forEach(el => {
                 const tId = parseInt(el.getAttribute('data-id'));
                 const table = state.tables.find(t => t.id === tId);
                 if (table) {
-                    table.x = parseFloat(el.style.left);
-                    table.y = parseFloat(el.style.top);
+                    // Guardamos las coordenadas porcentuales exactas (p)
+                    table.xP = parseFloat(el.style.left);
+                    table.yP = parseFloat(el.style.top);
                 }
             });
             
-            saveToStorage();
+            saveToStorage(); // Guardar en la nube/local
             showToast('✅ Plano guardado correctamente', 'success');
-            closeModal();
+            closeFloorPlanEditor(); // Cierra y reactiva scroll
+            
+            // Recargar vistas para ver cambios
             if (currentView === 'settings') renderSettings(document.getElementById('contentArea'));
             if (currentView === 'waiter') renderWaiter(document.getElementById('contentArea'));
         }
