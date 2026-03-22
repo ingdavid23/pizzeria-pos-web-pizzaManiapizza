@@ -1993,6 +1993,23 @@ function processPayment(method) {
             showReceipt(sale); 
         }
 
+        // ==================== CERRAR MODALES (VERSIÓN BLINDADA) ====================
+    function closeModal() {
+        // 1. Ocultamos y limpiamos la ventana principal del ticket/modal
+        const modal = document.getElementById('modalContainer');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.innerHTML = ''; // Esto evita que las ventanas se queden congeladas en memoria
+        }
+        
+        // 2. Destruimos la capa flotante de WhatsApp por si se quedó abierta
+        const waOverlay = document.getElementById('waPromptOverlay');
+        if (waOverlay) waOverlay.remove();
+        
+        // 3. Devolvemos el scroll a la página principal por si se había bloqueado
+        document.body.style.overflow = '';
+    }
+
         // ==================== KITCHEN MODULE ====================
         // ==================== KITCHEN MODULE ====================
         let currentKitchenTab = 'active';
