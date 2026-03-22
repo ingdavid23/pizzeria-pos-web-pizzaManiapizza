@@ -4681,7 +4681,6 @@ function payExistingOrder(orderId, method) {
         }
 
        // ==================== TICKET HISTORY MODULE (CON CALENDARIO CORREGIDO) ====================
-       // ==================== TICKET HISTORY MODULE (CON CALENDARIO Y USB) ====================
        function renderTicketHistory(container) {
             const getLocalYYYYMMDD = (dateObj) => {
                 const d = new Date(dateObj);
@@ -4743,8 +4742,7 @@ function payExistingOrder(orderId, method) {
                                         <span class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">
                                             ${sale.paymentMethod === 'cash' ? '💵 Efectivo' : '📱 Transferencia'}
                                         </span>
-                                        
-                                        <button onclick='printTicketUSB(${sale.id})' class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-theme-bg border border-theme-beige hover:bg-theme-beige transition text-theme-text">
+                                        <button onclick='reprintTicket(${sale.id})' class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-theme-bg border border-theme-beige hover:bg-theme-beige transition text-theme-text">
                                             🖨️ Ver Ticket
                                         </button>
                                     </div>
@@ -6327,67 +6325,6 @@ function payExistingOrder(orderId, method) {
                 showToast('✅ Categoría eliminada', 'success');
                 manageInventoryCategoriesModal(); 
                 if (currentView === 'inventory') renderInventory(document.getElementById('contentArea'));
-            }
-        }
-
-        // ==================== IMPRESIÓN DIRECTA POR USB (ESC/POS) ====================
-        async function printTicketUSB(saleId) {
-            // 1. Buscamos la venta en el historial para sacar los productos reales
-            const sale = state.sales.find(s => s.id === saleId);
-            if (!sale) {
-                alert("Error: No se encontró la venta.");
-                return;
-            }
-
-            try {
-                // 2. Pedimos permiso para usar el USB (Solo lo pregunta la primera vez)
-                const port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 9600 }); // 9600 es estándar, algunas usan 19200 o 115200
-
-                const writer = port.writable.getWriter();
-                const encoder = new TextEncoder();
-
-                // 3. Comandos de la impresora térmica
-                const initPrinter = new Uint8Array([0x1B, 0x40]); // Limpiar memoria
-                const alignCenter = new Uint8Array([0x1B, 0x61, 0x01]); // Alinear al centro
-                const alignLeft = new Uint8Array([0x1B, 0x61, 0x00]); // Alinear a la izquierda
-                const cutPaper = new Uint8Array([0x1D, 0x56, 0x41, 0x10]); // Cortar papel
-
-                // 4. Armamos el diseño del ticket con los datos reales
-                let ticketText = "";
-                ticketText += "PIZZAMANIA\n";
-                ticketText += "TICKET DE VENTA\n";
-                ticketText += "Ticket #" + sale.orderId.toString().slice(-4) + "\n";
-                ticketText += new Date(sale.timestamp).toLocaleString('es-MX') + "\n";
-                ticketText += "------------------------------------------\n"; // Línea separadora
-                
-                // Recorremos los productos de esa venta
-                sale.items.forEach(item => {
-                    // Formato: 2x Pizza Pepp ... $150
-                    ticketText += `${item.quantity}x ${item.name} ... $${item.price * item.quantity}\n`;
-                });
-
-                ticketText += "------------------------------------------\n";
-                ticketText += `TOTAL A PAGAR:      $${sale.total}\n`;
-                ticketText += `PAGO EN:            ${sale.paymentMethod === 'cash' ? 'Efectivo' : 'Transferencia'}\n`;
-                ticketText += "\n¡GRACIAS POR SU PREFERENCIA!\n";
-                ticketText += "Vuelva pronto\n\n\n\n\n"; // Espacio extra para que el corte no muerda el texto
-
-                // 5. Enviamos todo como rayo por el cable USB
-                await writer.write(initPrinter);
-                await writer.write(alignCenter); // Centramos el texto general
-                await writer.write(encoder.encode(ticketText));
-                await writer.write(cutPaper); // ¡Zaz! Corte automático
-                
-                // 6. Liberamos la impresora
-                writer.releaseLock();
-                await port.close();
-                
-                showToast('✅ Ticket impreso directo por USB', 'success');
-
-            } catch (error) {
-                console.error("Error al imprimir por USB:", error);
-                alert("⚠️ Error: Asegúrate de tener la impresora conectada por USB y encendida. Si es la primera vez, debes seleccionarla en la ventana emergente de Chrome.");
             }
         }
    
