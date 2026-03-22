@@ -1836,7 +1836,7 @@ function processPayment(method) {
             }
 
             modal.innerHTML = `
-                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin">
+                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative">
                     
                     <div class="bg-white text-black p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
                         
@@ -1895,21 +1895,102 @@ function processPayment(method) {
                         </div>
                     </div>
                     
-                    <div class="w-full max-w-[300px] grid grid-cols-2 gap-3 mt-6 print:hidden shrink-0">
-                        <button onclick="closeModal()" class="py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
-                            Cerrar
-                        </button>
-                        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white py-3 font-bold rounded-xl shadow-md flex items-center justify-center gap-2">
-                            🖨️ Imprimir
+                    <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                                🖨️ Imprimir
+                            </button>
+                            <button onclick="sendTicketByWhatsapp(${sale.id})" class="bg-green-500 hover:bg-green-600 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                                💬 WhatsApp
+                            </button>
+                        </div>
+                        <button onclick="closeModal()" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
+                            Cerrar Ventana
                         </button>
                     </div>
                 </div>
             `;
             modal.classList.remove('hidden');
         }
-        
-        function closeModal() {
-            document.getElementById('modalContainer').classList.add('hidden');
+
+       // ==================== ENVIAR TICKET POR WHATSAPP (MODERNO Y SIN BLOQUEOS) ====================
+       function sendTicketByWhatsapp(saleId) {
+            const sale = state.sales.find(s => s.id === saleId);
+            if (!sale) return;
+
+            // 1. Mostrar un Modal HTML real en lugar de prompt() para evitar el bloqueador de Chrome
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-sm animate-slideIn shadow-2xl border-2 border-green-500 text-center">
+                    <h3 class="text-xl font-extrabold mb-2 text-green-600 flex items-center justify-center gap-2">💬 WhatsApp</h3>
+                    <p class="text-sm text-theme-text font-medium mb-4">Ingresa el número del cliente a 10 dígitos:</p>
+                    
+                    <div class="flex items-center bg-white border-2 border-theme-beige rounded-xl overflow-hidden mb-4 focus-within:border-green-500 transition-colors shadow-inner">
+                        <span class="bg-gray-100 px-3 py-3 font-bold text-gray-600 border-r border-theme-beige">+52</span>
+                        <input type="tel" id="waCustomerPhone" class="w-full px-3 py-3 focus:outline-none font-extrabold text-xl text-theme-text tracking-widest text-center" placeholder="963 123 4567" maxlength="10" autocomplete="off">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="showReceipt(state.sales.find(s => s.id === ${saleId}))" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="executeWhatsappSend(${saleId})" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">Enviar 🚀</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+            
+            // Ponemos el cursor automáticamente en el campo de texto
+            setTimeout(() => document.getElementById('waCustomerPhone').focus(), 100);
+        }
+
+        function executeWhatsappSend(saleId) {
+            const sale = state.sales.find(s => s.id === saleId);
+            if (!sale) return;
+
+            const phoneInput = document.getElementById('waCustomerPhone').value;
+            const cleanPhone = phoneInput.replace(/\D/g, ''); // Limpiar cualquier espacio o letra
+
+            if (cleanPhone.length < 10) {
+                showToast("El número debe tener al menos 10 dígitos", "warning");
+                const inputEl = document.getElementById('waCustomerPhone').parentElement;
+                inputEl.classList.add('border-red-500', 'animate-shake');
+                setTimeout(() => inputEl.classList.remove('border-red-500', 'animate-shake'), 500);
+                return;
+            }
+
+            // 2. Armamos el mensaje de texto del ticket
+            let msg = `🍕 *PIZZAMANÍA - TICKET DE VENTA*\n`;
+            msg += `--------------------------------------\n`;
+            msg += `*Ticket #:* ${sale.orderId.toString().slice(-4)}\n`;
+            msg += `*Fecha:* ${new Date(sale.timestamp).toLocaleString('es-MX')}\n`;
+            msg += `--------------------------------------\n`;
+            
+            sale.items.forEach(item => {
+                msg += `▪️ ${item.quantity}x ${item.name}\n`;
+                if(item.note) msg += `   _(Nota: ${item.note})_\n`;
+                msg += `   *$${(item.price * item.quantity).toLocaleString()}*\n`;
+            });
+            
+            msg += `--------------------------------------\n`;
+            if (sale.discount > 0) {
+                msg += `*Subtotal:* $${(sale.total + sale.discount).toLocaleString()}\n`;
+                msg += `*Descuento:* -$${sale.discount.toLocaleString()}\n`;
+            }
+            msg += `*TOTAL PAGADO: $${sale.total.toLocaleString()}*\n`;
+            msg += `--------------------------------------\n`;
+            msg += `¡Gracias por tu preferencia! Vuelve pronto. 👋\n`;
+
+            // 3. Generamos el enlace oficial de WhatsApp
+            const encodedMsg = encodeURIComponent(msg);
+            const countryCode = "52"; // Código de México
+            const finalUrl = `https://wa.me/${countryCode}${cleanPhone}?text=${encodedMsg}`;
+
+            // 4. Al ejecutarse desde un clic de botón directo, Chrome NO lo bloquea
+            window.open(finalUrl, '_blank');
+            
+            showToast('✅ Abriendo WhatsApp...', 'success');
+            
+            // Regresamos a la pantalla del ticket normal
+            showReceipt(sale); 
         }
 
         // ==================== KITCHEN MODULE ====================
