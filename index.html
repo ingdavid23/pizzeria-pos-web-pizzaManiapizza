@@ -346,7 +346,6 @@
             <header class="glass border-b border-white px-3 md:px-4 py-3 flex items-center justify-between shrink-0 gap-2">
                 <div class="flex items-center gap-2 md:gap-3">
                     <img src="mania.jpg" alt="Logo Rufaza" class="w-10 h-10 md:w-12 md:h-12 object-contain rounded-lg drop-shadow-sm">
-                    
                     <div>
                         <h1 class="text-lg md:text-xl font-bold text-theme-greenDark leading-tight flex items-center gap-2">
                             SISTEMA POS 
@@ -354,16 +353,23 @@
                         </h1>
                     </div>
                 </div>
+
+                <div class="hidden lg:flex flex-1 justify-center">
+                    <div class="glass px-6 py-1.5 rounded-2xl border border-white shadow-sm flex flex-col items-center justify-center bg-white/40">
+                        <span id="currentDateDisplay" class="text-[10px] font-bold text-theme-textMuted uppercase tracking-widest leading-none mb-1">Cargando fecha...</span>
+                        <span id="currentTimeDisplay" class="text-2xl font-black text-theme-greenDark tracking-wider leading-none drop-shadow-sm">--:--:--</span>
+                    </div>
+                </div>
                 <div class="flex items-center gap-2 md:gap-4">
-                    <div class="flex items-center gap-2 md:gap-4">
-                        <button onclick="toggleDarkMode()" id="darkModeBtn" class="p-1.5 md:p-2 hover:bg-white/60 rounded-lg transition text-xl md:text-2xl" title="Cambiar Tema">
-                            🌙
-                        </button>
-                        
-                        <div id="notificationBell" class="relative cursor-pointer p-1" onclick="toggleNotifications()">
-                            <span class="text-xl md:text-2xl">🔔</span>
-                            <span id="notifCount" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] md:text-xs w-4 h-4 md:w-5 md:h-5 rounded-full flex items-center justify-center hidden shadow-md">0</span>
-                        </div>
+                    <button onclick="toggleDarkMode()" id="darkModeBtn" class="p-1.5 md:p-2 hover:bg-white/60 rounded-lg transition text-xl md:text-2xl" title="Cambiar Tema">
+                        🌙
+                    </button>
+                    
+                    <div id="notificationBell" class="relative cursor-pointer p-1" onclick="toggleNotifications()">
+                        <span class="text-xl md:text-2xl">🔔</span>
+                        <span id="notifCount" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] md:text-xs w-4 h-4 md:w-5 md:h-5 rounded-full flex items-center justify-center hidden shadow-md">0</span>
+                    </div>
+                    
                     <div class="flex items-center gap-2 glass px-2 md:px-3 py-1.5 md:py-2 rounded-xl border border-white">
                         <span class="text-lg md:text-xl" id="userIcon">👤</span>
                         <div class="hidden sm:block">
@@ -371,6 +377,7 @@
                             <p id="userRole" class="text-[10px] md:text-xs text-theme-textMuted font-medium"></p>
                         </div>
                     </div>
+                    
                     <button onclick="handleLogout()" class="p-1.5 md:p-2 hover:bg-white/60 rounded-lg transition text-lg md:text-xl" title="Cerrar Sesión">
                         🚪
                     </button>
@@ -900,11 +907,20 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
         }
 
         function updateDateTime() {
-            const dateEl = document.getElementById('currentDateTime');
-            if (dateEl) { // Solo si la etiqueta existe, ponemos la hora
+            const dateEl = document.getElementById('currentDateDisplay');
+            const timeEl = document.getElementById('currentTimeDisplay');
+            
+            if (dateEl && timeEl) { 
                 const now = new Date();
-                dateEl.textContent = now.toLocaleString('es-MX', {
-                    weekday: 'long', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                
+                // Fecha: "lunes, 23 de marzo de 2026" (El HTML lo convierte a mayúsculas automáticamente)
+                dateEl.textContent = now.toLocaleDateString('es-MX', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+                });
+
+                // Hora: "10:30:10 a.m."
+                timeEl.textContent = now.toLocaleTimeString('es-MX', {
+                    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true
                 });
             }
         }
@@ -1125,7 +1141,7 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                                             <p class="text-xs text-red-400">Mín: ${i.minStock}</p>
                                         </div>
                                     </div>
-                                `).join('') || '<p class="text-green-600 font-medium text-center py-4">✅ Todo el inventario está OK</p>'}
+                                `).join('') || '<p class="text-green-600 font-medium text-center py-4">✅ Todo el inventario está bien</p>'}
                             </div>
                         </div>
                     </div>
@@ -5396,7 +5412,7 @@ function payExistingOrder(orderId, method) {
             });
         }
 
-        // ==================== REPORTE MENSUAL COMPLETO (PDF) ====================
+        // ==================== REPORTE MENSUAL COMPLETO (PDF) - CONECTADO A LA GRÁFICA ====================
         function generateMonthlyReport() {
             try {
                 // 1. Escudos de seguridad: Asegurar que existan los arreglos
@@ -5404,13 +5420,16 @@ function payExistingOrder(orderId, method) {
                 if (!state.inventory) state.inventory = [];
                 if (!state.expenses) state.expenses = []; // Escudo para gastos
 
-                const now = new Date();
-                const currentMonthName = now.toLocaleString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();
+                // 🌟 MAGIA: Usamos el mes y año que el usuario tiene seleccionado en la gráfica
+                // Si la gráfica está en "Últimos 7 días", tomará el mes actual por defecto
+                const targetDate = new Date(reportSelectedYear, reportSelectedMonth, 1);
+                const currentMonthName = targetDate.toLocaleString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();
                 
-                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+                // Calculamos el primer y último día del MES SELECCIONADO
+                const firstDay = new Date(reportSelectedYear, reportSelectedMonth, 1);
+                const lastDay = new Date(reportSelectedYear, reportSelectedMonth + 1, 0, 23, 59, 59);
 
-                // Filtrar ventas y gastos del mes actual
+                // Filtrar ventas y gastos del mes exacto que se está viendo
                 const monthlySales = state.sales.filter(s => {
                     if (!s.timestamp) return false;
                     const sDate = new Date(s.timestamp);
@@ -5428,7 +5447,7 @@ function payExistingOrder(orderId, method) {
                 const cashIncome = monthlySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + (s.total || 0), 0);
                 const transferIncome = monthlySales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + (s.total || 0), 0);
                 
-                // NUEVO: Sumar gastos y sacar ganancia neta
+                // Sumar gastos y sacar ganancia neta
                 const totalEgresos = monthlyExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
                 const netProfit = totalIncome - totalEgresos;
 
@@ -5467,7 +5486,7 @@ function payExistingOrder(orderId, method) {
                         <div style="width: 760px; margin: 0 auto; background: white; color: black; padding: 30px;" id="printMonthlyArea">
                             
                             <div class="text-center border-b-2 border-black pb-4 mb-6 break-inside-avoid">
-                                <img src="mania.png" alt="Logo Rufaza" class="w-20 h-20 mx-auto mb-2 object-contain grayscale-0 print:grayscale" onerror="this.style.display='none'">
+                                <img src="mania.jpg" alt="Logo Rufaza" class="w-20 h-20 mx-auto mb-2 object-contain grayscale-0 print:grayscale" onerror="this.style.display='none'">
                                 <h2 class="text-3xl font-extrabold uppercase tracking-widest text-theme-greenDark">Reporte de Resultados</h2>
                                 <p class="text-lg font-bold mt-1 text-gray-600">SUCURSAL ${typeof currentBranch !== 'undefined' && currentBranch === 'sucursal_principal' ? 'PRINCIPAL' : 'CENTRO'}</p>
                                 <p class="text-sm text-gray-500 mt-1 font-bold">Mes de proceso: ${currentMonthName}</p>
@@ -5666,15 +5685,26 @@ function payExistingOrder(orderId, method) {
                             </div>
                         </div>
                         <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
-                            <h3 class="font-extrabold text-lg mb-5 text-theme-text border-b border-theme-beige pb-3">📞 Catálogo de Proveedores</h3>
-
-                        
+                            <div class="flex justify-between items-center mb-5 border-b border-theme-beige pb-3">
+                                <h3 class="font-extrabold text-lg text-theme-text">📞 Catálogo de Proveedores</h3>
+                                <button onclick="showSupplierModal()" class="btn-primary px-4 py-2 rounded-xl text-sm font-bold shadow-md flex items-center gap-2 transition hover:scale-105">
+                                    ➕ Nuevo
+                                </button>
+                            </div>
+                            
                             <div class="space-y-3 max-h-80 overflow-auto scrollbar-thin pr-2">
+                                ${state.suppliers.length === 0 ? '<p class="text-center text-sm font-bold text-gray-400 py-6">No hay proveedores registrados</p>' : ''}
                                 ${state.suppliers.map(s => `
-                                    <div class="p-4 rounded-xl bg-white shadow-sm border border-theme-beige">
-                                        <p class="font-extrabold text-theme-greenDark text-lg mb-1">${s.name}</p>
-                                        <p class="text-sm font-medium text-theme-textMuted flex gap-2"><span class="w-4">📞</span> ${s.contact}</p>
-                                        <p class="text-sm font-medium text-theme-textMuted flex gap-2"><span class="w-4">✉️</span> ${s.email}</p>
+                                    <div class="p-4 rounded-xl bg-white shadow-sm border border-theme-beige flex justify-between items-start transition hover:shadow-md">
+                                        <div>
+                                            <p class="font-extrabold text-theme-greenDark text-lg mb-1">${s.name}</p>
+                                            <p class="text-sm font-medium text-theme-textMuted flex gap-2 items-center"><span class="w-4">📞</span> ${s.contact || 'N/A'}</p>
+                                            <p class="text-sm font-medium text-theme-textMuted flex gap-2 items-center"><span class="w-4">✉️</span> ${s.email || 'N/A'}</p>
+                                        </div>
+                                        <div class="flex gap-1">
+                                            <button onclick="showSupplierModal(${s.id})" class="p-2 hover:bg-theme-beige rounded-lg transition text-sm border border-transparent hover:border-theme-beige" title="Editar">✏️</button>
+                                            <button onclick="confirmDeleteSupplier(${s.id})" class="p-2 hover:bg-red-50 text-red-500 rounded-lg transition text-sm border border-transparent hover:border-red-200" title="Eliminar">🗑️</button>
+                                        </div>
                                     </div>
                                 `).join('')}
                             </div>
@@ -6472,6 +6502,113 @@ function payExistingOrder(orderId, method) {
                 showToast('✅ Categoría eliminada', 'success');
                 manageInventoryCategoriesModal(); 
                 if (currentView === 'inventory') renderInventory(document.getElementById('contentArea'));
+            }
+        }
+
+        // ==================== SUPPLIERS MODULE (CATÁLOGO DINÁMICO) ====================
+        function showSupplierModal(supplierId = null) {
+            // Si supplierId es nulo, es uno nuevo; si tiene número, lo buscamos para editarlo
+            const isNew = supplierId === null;
+            const supplier = isNew ? { id: '', name: '', contact: '', email: '' } : state.suppliers.find(s => s.id === supplierId);
+            
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-white">
+                    <h3 class="text-xl font-bold mb-4 text-theme-greenDark flex items-center gap-2">${isNew ? '➕ Nuevo Proveedor' : '✏️ Editar Proveedor'}</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-bold mb-1 text-theme-text">Nombre de la Empresa o Contacto</label>
+                            <input type="text" id="suppName" value="${supplier.name}" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green font-bold text-theme-text shadow-inner" placeholder="Ej: Carnes Selectas S.A.">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold mb-1 text-theme-text">Teléfono</label>
+                            <input type="tel" id="suppContact" value="${supplier.contact}" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green font-medium text-theme-text shadow-inner" placeholder="Ej: 963 123 4567">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold mb-1 text-theme-text">Correo Electrónico (Opcional)</label>
+                            <input type="email" id="suppEmail" value="${supplier.email}" class="w-full px-4 py-3 bg-white border border-theme-beige rounded-xl focus:outline-none focus:border-theme-green font-medium text-theme-text shadow-inner" placeholder="Ej: ventas@empresa.com">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 pt-4 border-t border-theme-beige mt-2">
+                            <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                            <button onclick="saveSupplier(${isNew ? 'null' : supplierId})" class="btn-primary py-3 rounded-xl font-bold shadow-md">Guardar</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+            setTimeout(() => document.getElementById('suppName').focus(), 100);
+        }
+
+        function saveSupplier(supplierId) {
+            const name = document.getElementById('suppName').value.trim();
+            const contact = document.getElementById('suppContact').value.trim();
+            const email = document.getElementById('suppEmail').value.trim();
+
+            if (!name) {
+                showToast('El nombre del proveedor es obligatorio', 'warning');
+                return;
+            }
+
+            if (!state.suppliers) state.suppliers = []; // Seguro por si el array no existe
+
+            if (supplierId === null) {
+                // Agregar Nuevo
+                state.suppliers.push({
+                    id: Date.now(),
+                    name,
+                    contact,
+                    email
+                });
+                logActivity('SUPPLIER_ADD', `Nuevo proveedor agregado: ${name}`);
+            } else {
+                // Editar Existente
+                const supplier = state.suppliers.find(s => s.id === supplierId);
+                if (supplier) {
+                    supplier.name = name;
+                    supplier.contact = contact;
+                    supplier.email = email;
+                    logActivity('SUPPLIER_UPDATE', `Proveedor actualizado: ${name}`);
+                }
+            }
+
+            saveToStorage(); // Guarda en Firebase
+            showToast('Proveedor guardado exitosamente', 'success');
+            closeModal();
+            renderSettings(document.getElementById('contentArea')); // Refresca la pantalla
+        }
+
+        function confirmDeleteSupplier(supplierId) {
+            const supplier = state.suppliers.find(s => s.id === supplierId);
+            if (!supplier) return;
+
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-red-300 text-center">
+                    <div class="text-5xl mb-4 drop-shadow-md">⚠️</div>
+                    <h3 class="text-xl font-extrabold mb-2 text-red-600">¿Eliminar Proveedor?</h3>
+                    <p class="text-sm text-theme-text font-medium mb-6">Estás a punto de eliminar a <strong>${supplier.name}</strong> del catálogo de contactos.</p>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="deleteSupplier(${supplier.id})" class="bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold shadow-md transition">Sí, Eliminar</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function deleteSupplier(supplierId) {
+            const supplier = state.suppliers.find(s => s.id === supplierId);
+            if (supplier) {
+                // Filtramos para quitar el eliminado
+                state.suppliers = state.suppliers.filter(s => s.id !== supplierId);
+                
+                logActivity('SUPPLIER_DELETE', `Proveedor eliminado: ${supplier.name}`);
+                saveToStorage(); // Guarda en Firebase
+                
+                showToast(`Proveedor ${supplier.name} eliminado`, 'success');
+                closeModal();
+                renderSettings(document.getElementById('contentArea')); // Refresca la pantalla
             }
         }
    
