@@ -1797,7 +1797,7 @@ function processPayment(method) {
         }
 
         
-        // ==================== VENTANA DEL TICKET (CON LOGO Y OPTIMIZADO PARA TÉRMICA) ====================
+        // ==================== VENTANA DEL TICKET (LOGO, TÉRMICA Y DESGLOSE DE PAGO) ====================
         function showReceipt(sale) {
             const modal = document.getElementById('modalContainer');
             
@@ -1806,28 +1806,41 @@ function processPayment(method) {
 
             if (sale.paymentsBreakdown && sale.paymentsBreakdown.length > 0) {
                 paymentsHtml = sale.paymentsBreakdown.map(p => {
-                    const methodLabel = p.method === 'cash' ? 'EFECTIVO' : 'TRANSF.';
-                    return `
-                        <div class="flex justify-between font-bold text-black">
-                            <span>${methodLabel} <span class="text-[9px]">(${new Date(p.timestamp).toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'})})</span>:</span>
-                            <span class="font-black">$${p.amount.toLocaleString()}</span>
-                        </div>
-                    `;
+                    if (p.method === 'cash') {
+                        // Si es efectivo, mostramos con cuánto pagó el cliente (received)
+                        return `
+                            <div class="flex justify-between font-bold text-black">
+                                <span>PAGÓ CON (Efectivo):</span>
+                                <span class="font-black">$${(p.received || p.amount).toLocaleString()}</span>
+                            </div>
+                        `;
+                    } else {
+                        // Si es transferencia, mostramos el monto de la transferencia
+                        return `
+                            <div class="flex justify-between font-bold text-black">
+                                <span>TRANSFERENCIA:</span>
+                                <span class="font-black">$${p.amount.toLocaleString()}</span>
+                            </div>
+                        `;
+                    }
                 }).join('');
 
+                // Si el ÚLTIMO pago fue en efectivo y hubo cambio, lo mostramos resaltado
                 const lastPayment = sale.paymentsBreakdown[sale.paymentsBreakdown.length - 1];
-                if (lastPayment.method === 'cash' && lastPayment.change > 0) {
+                if (lastPayment && lastPayment.method === 'cash' && lastPayment.change > 0) {
                     changeHtml = `
-                        <div class="flex justify-between font-black border-t-2 border-black mt-1 pt-1 text-black">
+                        <div class="flex justify-between font-black border-t-2 border-black mt-1 pt-1 text-black text-[12px]">
                             <span>SU CAMBIO:</span>
                             <span>$${lastPayment.change.toLocaleString()}</span>
                         </div>
                     `;
                 }
             } else {
+                // Soporte de compatibilidad para tickets muy antiguos
                 if (sale.paymentMethod === 'cash') {
-                    paymentsHtml = `<div class="flex justify-between font-bold text-black"><span>EFECTIVO:</span><span class="font-black">$${(sale.total + (sale.change || 0)).toLocaleString()}</span></div>`;
-                    changeHtml = `<div class="flex justify-between font-black border-t-2 border-black mt-1 pt-1 text-black"><span>SU CAMBIO:</span><span>$${sale.change?.toLocaleString() || '0'}</span></div>`;
+                    const pagoCon = sale.total + (sale.change || 0);
+                    paymentsHtml = `<div class="flex justify-between font-bold text-black"><span>PAGÓ CON:</span><span class="font-black">$${pagoCon.toLocaleString()}</span></div>`;
+                    changeHtml = `<div class="flex justify-between font-black border-t-2 border-black mt-1 pt-1 text-black text-[12px]"><span>SU CAMBIO:</span><span>$${sale.change?.toLocaleString() || '0'}</span></div>`;
                 } else {
                     paymentsHtml = `<div class="flex justify-between font-bold text-black"><span>MÉTODO:</span><span class="font-black">TRANSFERENCIA</span></div>`;
                 }
@@ -1839,7 +1852,6 @@ function processPayment(method) {
                     <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
                         
                         <div class="text-center border-b-2 border-dashed border-black pb-4 mb-4 print:pb-2 print:mb-2 print:mt-0 flex flex-col items-center">
-                            
                             <img src="pizza.jpeg" alt="Logo" class="h-20 w-auto mb-2 print:mt-0 print:invert-0" style="display: block; margin-left: auto; margin-right: auto;">
                             
                             <p class="text-[10px] uppercase font-bold print:leading-tight">Ticket de Venta</p>
@@ -1908,7 +1920,7 @@ function processPayment(method) {
                             Cerrar Ventana
                         </button>
                     </div>
-                </div>
+                </div>  
             `;
             modal.classList.remove('hidden');
         }
@@ -1941,7 +1953,6 @@ function processPayment(method) {
             // Ponemos el cursor automáticamente en el campo de texto
             setTimeout(() => document.getElementById('waCustomerPhone').focus(), 100);
         }
-
         function executeWhatsappSend(saleId) {
             const sale = state.sales.find(s => s.id === saleId);
             if (!sale) return;
@@ -1957,8 +1968,13 @@ function processPayment(method) {
                 return;
             }
 
-            // 2. Armamos el mensaje de texto del ticket
-            let msg = `🍕 *PIZZAMANÍA - TICKET DE VENTA*\n`;
+            // ==================== ARMADO DEL MENSAJE DE WHATSAPP ====================
+            let msg = `🍕 *PIZZAMANÍA*\n`;
+            msg += `Ticket de Venta\n`;
+            msg += `Roberto Morales Muciño\n`;
+            msg += `MOMR7707196C1\n`;
+            msg += `11a. Calle Pte. No 62. C.P 30068\n`;
+            msg += `Comitán de Domínguez, Chis.\n`;
             msg += `--------------------------------------\n`;
             msg += `*Ticket #:* ${sale.orderId.toString().slice(-4)}\n`;
             msg += `*Fecha:* ${new Date(sale.timestamp).toLocaleString('es-MX')}\n`;
@@ -1975,9 +1991,39 @@ function processPayment(method) {
                 msg += `*Subtotal:* $${(sale.total + sale.discount).toLocaleString()}\n`;
                 msg += `*Descuento:* -$${sale.discount.toLocaleString()}\n`;
             }
-            msg += `*TOTAL PAGADO: $${sale.total.toLocaleString()}*\n`;
+            msg += `*TOTAL A PAGAR: $${sale.total.toLocaleString()}*\n`;
+            msg += `--------------------------------------\n`;
+            
+            // --- LÓGICA DE DETALLE DE PAGO PARA WHATSAPP ---
+            msg += `*DETALLE DE PAGO:*\n`;
+            if (sale.paymentsBreakdown && sale.paymentsBreakdown.length > 0) {
+                sale.paymentsBreakdown.forEach(p => {
+                    if (p.method === 'cash') {
+                        msg += `💵 PAGÓ CON (Efectivo): $${(p.received || p.amount).toLocaleString()}\n`;
+                    } else {
+                        msg += `📱 TRANSFERENCIA: $${p.amount.toLocaleString()}\n`;
+                    }
+                });
+
+                // Si pagó con efectivo, SIEMPRE mostramos el cambio (aunque sea 0)
+                const lastPayment = sale.paymentsBreakdown[sale.paymentsBreakdown.length - 1];
+                if (lastPayment && lastPayment.method === 'cash') {
+                    msg += `*SU CAMBIO: $${(lastPayment.change || 0).toLocaleString()}*\n`;
+                }
+            } else {
+                // Compatibilidad con tickets antiguos
+                if (sale.paymentMethod === 'cash') {
+                    const pagoCon = sale.total + (sale.change || 0);
+                    msg += `💵 PAGÓ CON (Efectivo): $${pagoCon.toLocaleString()}\n`;
+                    msg += `*SU CAMBIO: $${(sale.change || 0).toLocaleString()}*\n`;
+                } else {
+                    msg += `📱 MÉTODO: TRANSFERENCIA\n`;
+                }
+            }
+
             msg += `--------------------------------------\n`;
             msg += `¡Gracias por tu preferencia! Vuelve pronto. 👋\n`;
+            msg += `Tel. 963-632-0837\n`;
 
             // 3. Generamos el enlace oficial de WhatsApp
             const encodedMsg = encodeURIComponent(msg);
@@ -2955,64 +3001,67 @@ function processPayment(method) {
                         </div>
                     ` : ''}
 
-                    <div class="bg-white/80 rounded-2xl overflow-hidden shadow-sm border border-white">
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-theme-text">
-                                <thead class="bg-theme-beige/50 border-b border-theme-beige">
-                                    <tr>
-                                        <th class="px-5 py-4 text-left text-sm font-bold">Insumo</th>
-                                        <th class="px-5 py-4 text-left text-sm font-bold">Categoría</th>
-                                        <th class="px-5 py-4 text-left text-sm font-bold">Stock Actual</th>
-                                        <th class="px-5 py-4 text-left text-sm font-bold">Costo</th>
-                                        <th class="px-5 py-4 text-left text-sm font-bold">Estado</th>
-                                        <th class="px-5 py-4 text-center text-sm font-bold">Acciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-theme-beige">
-                                    ${filteredInventory.length === 0 ? `<tr><td colspan="6" class="text-center py-8 text-theme-textMuted font-medium">No hay insumos en esta categoría</td></tr>` : 
-                                    filteredInventory.map(item => {
+                    <div class="space-y-3 pb-8">
+                        ${filteredInventory.length === 0 ? `
+                            <div class="text-center py-12 bg-white/40 rounded-xl border border-dashed border-theme-beige">
+                                <p class="text-theme-textMuted font-medium text-lg">No hay insumos en esta categoría</p>
+                            </div>
+                        ` : 
+                        filteredInventory.map(item => {
+                            
+                            // Lógica de Conversión a Gramos/Mililitros
+                            let conversionText = "";
+                            if (item.unit === 'kg') {
+                                conversionText = `<span class="block text-[10px] text-theme-textMuted font-bold mt-0.5">(${Number((item.stock * 1000).toFixed(0)).toLocaleString()} g)</span>`;
+                            } else if (item.unit === 'lt') {
+                                conversionText = `<span class="block text-[10px] text-theme-textMuted font-bold mt-0.5">(${Number((item.stock * 1000).toFixed(0)).toLocaleString()} ml)</span>`;
+                            }
+                            
+                            // Lógica del Badge de Estado
+                            const statusBadge = item.stock <= item.minStock 
+                                ? '<span class="px-2 py-0.5 rounded-md text-[10px] bg-red-100 text-red-700 font-bold border border-red-200 shadow-sm">Bajo</span>' 
+                                : item.stock <= item.minStock * 2 
+                                    ? '<span class="px-2 py-0.5 rounded-md text-[10px] bg-yellow-100 text-yellow-800 font-bold border border-yellow-200 shadow-sm">Medio</span>' 
+                                    : '<span class="px-2 py-0.5 rounded-md text-[10px] bg-green-100 text-green-700 font-bold border border-green-200 shadow-sm">Óptimo</span>';
+
+                            return `
+                                <div class="bg-white/90 rounded-2xl p-4 shadow-sm border ${item.stock <= item.minStock ? 'border-red-300' : 'border-theme-beige'} flex flex-col md:flex-row md:items-center justify-between gap-3 transition hover:shadow-md">
+                                    
+                                    <div class="flex-1 flex justify-between md:justify-start items-start md:items-center gap-2">
+                                        <div>
+                                            <div class="flex items-center gap-2">
+                                                <h4 class="font-extrabold text-theme-text text-base leading-tight">${item.name}</h4>
+                                                ${statusBadge}
+                                            </div>
+                                            <p class="text-[11px] font-bold text-theme-textMuted uppercase mt-1 tracking-wider">${item.category} • $${item.cost}/u</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex flex-col sm:flex-row items-center gap-3 sm:gap-5 w-full md:w-auto border-t md:border-0 border-theme-beige pt-3 md:pt-0">
                                         
-                                        // 💡 NUEVO: Lógica de Conversión a Gramos/Mililitros
-                                        let conversionText = "";
-                                        if (item.unit === 'kg') {
-                                            conversionText = `<span class="block text-[10px] text-theme-textMuted font-bold mt-0.5">(${Number((item.stock * 1000).toFixed(0)).toLocaleString()} g)</span>`;
-                                        } else if (item.unit === 'lt') {
-                                            conversionText = `<span class="block text-[10px] text-theme-textMuted font-bold mt-0.5">(${Number((item.stock * 1000).toFixed(0)).toLocaleString()} ml)</span>`;
-                                        }
-                                        
-                                        return `
-                                            <tr class="hover:bg-white transition">
-                                                <td class="px-5 py-4 font-bold text-theme-text">${item.name}</td>
-                                                <td class="px-5 py-4 text-xs font-bold text-theme-textMuted uppercase tracking-wider">${item.category}</td>
-                                                <td class="px-5 py-3 ${item.stock <= item.minStock ? 'text-red-600 font-extrabold' : 'font-bold text-theme-greenDark'}">
-                                                    <span class="text-base">${item.stock.toFixed(2)} <span class="text-xs font-medium">${item.unit}</span></span>
-                                                    ${conversionText}
-                                                </td>
-                                                <td class="px-5 py-4 font-bold">$${item.cost}</td>
-                                                <td class="px-5 py-4">
-                                                    ${item.stock <= item.minStock ? '<span class="px-3 py-1 rounded-md text-xs bg-red-100 text-red-700 font-bold shadow-sm border border-red-200">Bajo</span>' :
-                                                    item.stock <= item.minStock * 2 ? '<span class="px-3 py-1 rounded-md text-xs bg-yellow-100 text-yellow-800 font-bold shadow-sm border border-yellow-200">Medio</span>' :
-                                                    '<span class="px-3 py-1 rounded-md text-xs bg-green-100 text-green-700 font-bold shadow-sm border border-green-200">Óptimo</span>'}
-                                                </td>
-                                                <td class="px-5 py-4">
-                                                    <div class="flex justify-center gap-1 sm:gap-2">
-                                                        <button onclick="showInventoryEntryModal(${item.id})" class="px-2 sm:px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-xs transition font-bold shadow-sm" title="Agregar Entrada">
-                                                            ➕<span class="hidden lg:inline ml-1">Entrada</span>
-                                                        </button>
-                                                        <button onclick="showEditInventoryItemModal(${item.id})" class="px-2 sm:px-3 py-1.5 rounded-lg bg-theme-bg border border-theme-beige hover:bg-theme-beige text-theme-text text-xs transition font-bold shadow-sm" title="Editar Insumo">
-                                                            ✏️<span class="hidden lg:inline ml-1">Editar</span>
-                                                        </button>
-                                                        <button onclick="confirmDeleteInventoryItem(${item.id})" class="px-2 sm:px-3 py-1.5 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 text-xs transition font-bold shadow-sm" title="Borrar Insumo">
-                                                            🗑️<span class="hidden lg:inline ml-1">Borrar</span>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
-                        </div>
+                                        <div class="flex justify-between sm:justify-center items-center w-full sm:w-auto bg-theme-bg px-4 py-2 rounded-xl border border-theme-beige">
+                                            <span class="text-xs font-bold text-theme-textMuted sm:hidden mr-2">Stock Actual:</span>
+                                            <div class="text-right sm:text-center">
+                                                <p class="text-lg font-extrabold ${item.stock <= item.minStock ? 'text-red-600' : 'text-theme-greenDark'} leading-none">${item.stock.toFixed(2)} <span class="text-xs font-bold text-theme-text">${item.unit}</span></p>
+                                                ${conversionText}
+                                            </div>
+                                        </div>
+
+                                        <div class="flex gap-2 w-full sm:w-auto">
+                                            <button onclick="showInventoryEntryModal(${item.id})" class="flex-1 sm:flex-none py-2 px-3 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-sm font-bold shadow-sm flex items-center justify-center gap-1 transition" title="Agregar Entrada">
+                                                ➕ <span class="md:hidden lg:inline">Entrada</span>
+                                            </button>
+                                            <button onclick="showEditInventoryItemModal(${item.id})" class="flex-1 sm:flex-none py-2 px-4 rounded-xl bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 text-sm font-bold shadow-sm flex items-center justify-center transition" title="Editar Insumo">
+                                                ✏️
+                                            </button>
+                                            <button onclick="confirmDeleteInventoryItem(${item.id})" class="flex-1 sm:flex-none py-2 px-4 rounded-xl bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 text-sm font-bold shadow-sm flex items-center justify-center transition" title="Borrar Insumo">
+                                                🗑️
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
