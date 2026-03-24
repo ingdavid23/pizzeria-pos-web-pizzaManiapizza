@@ -1162,7 +1162,7 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
         }
 
         function getStatusLabel(status) {
-            const labels = { pending: 'Pendiente', preparing: 'Preparando', ready: 'Listo', delivered: 'Entregado', cancelled: 'Cancelado' };
+            const labels = { pending: 'Pendiente', preparing: 'Preparando', ready: 'Listo', delivered: 'Finalizado', cancelled: 'Cancelado' };
             return labels[status] || status;
         }
 
@@ -2215,7 +2215,7 @@ function processPayment(method) {
                                     </button>
                                 ` : order.status === 'ready' ? `
                                     <button onclick="updateOrderStatus(${order.id}, 'delivered')" class="px-3 py-1.5 rounded-lg bg-purple-500 text-white hover:bg-purple-600 text-sm font-bold transition shadow-sm">
-                                        🚀 Entregar
+                                        🚀 Finalizado 
                                     </button>
                                 ` : ''}
                             </div>
