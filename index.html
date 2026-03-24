@@ -2236,32 +2236,19 @@ function processPayment(method) {
             // Actualizamos el estado de la orden
             order.status = newStatus;
 
-            // 👇 MAGIA: SI SE ENTREGA O CANCELA, LIBERAMOS LA MESA 👇
-            if (newStatus === 'delivered' || newStatus === 'cancelled') {
-                if (order.tableId) {
-                    const table = state.tables.find(t => t.id === order.tableId);
-                    if (table) {
-                        table.status = 'available'; // La mesa vuelve a estar Verde/Disponible
-                    }
-                }
-            }
+            // ❌ ELIMINADO: Ya no se libera la mesa automáticamente al entregar.
 
             saveToStorage();
             
-            // Usamos tu función getStatusLabel si existe, sino un texto por defecto
             const statusText = typeof getStatusLabel === 'function' ? getStatusLabel(newStatus) : newStatus;
             showToast(`✅ Pedido marcado como: ${statusText}`, 'success');
 
-            // RECARGA INTELIGENTE DE PANTALLAS (Para que se vea el cambio al instante)
+            // RECARGA INTELIGENTE DE PANTALLAS
             const contentArea = document.getElementById('contentArea');
-            
-            if (currentUser.role === 'cocina') {
+            if (currentUser.role === 'kitchen') {
                 if (typeof renderKitchen === 'function') renderKitchen(contentArea);
             } else {
-                // Si es mesero o admin, recargamos la vista que tengan abierta
                 if (typeof renderWaiter === 'function') renderWaiter(contentArea);
-                else if (typeof renderTables === 'function') renderTables(contentArea);
-                else if (typeof renderWaiterDashboard === 'function') renderWaiterDashboard(contentArea);
             }
         }
         function showKitchenReportModal() {
@@ -2379,24 +2366,33 @@ function processPayment(method) {
                             <div class="absolute top-0 left-1/2 -translate-x-1/2 bg-gray-300 text-gray-600 px-4 md:px-6 py-1 rounded-b-lg font-bold text-[9px] md:text-xs uppercase tracking-wider z-0">Cocina / Barra</div>
 
                             ${state.tables.map(table => {
-                                const activeOrder = state.orders.find(o => o.tableId === table.id && o.status !== 'delivered' && o.status !== 'cancelled');
+                                // Buscamos orden sin pagar
+                                const activeOrder = state.orders.find(o => o.tableId === table.id && o.paymentStatus !== 'paid' && o.status !== 'cancelled');
                                 
-                                // Lógica inteligente de colores
-                                let bgColor = 'bg-green-50 border-green-400 hover:bg-green-100';
+                                let bgColor = 'bg-green-50 border-green-400 hover:bg-green-100'; // Libre
                                 let textColor = 'text-green-700';
                                 let pulseEffect = '';
+                                let badgeHtml = '';
                                 
-                                if (table.status === 'occupied') {
-                                    if (activeOrder && activeOrder.status === 'ready') {
-                                        // Azul parpadeante si la orden está lista en cocina
-                                        bgColor = 'bg-blue-100 border-blue-500';
-                                        textColor = 'text-blue-800';
-                                        pulseEffect = 'shadow-[0_0_15px_rgba(59,130,246,0.6)] animate-pulse-custom';
+                                if (table.status !== 'free') {
+                                    if (activeOrder) {
+                                        if (activeOrder.status === 'ready') {
+                                            bgColor = 'bg-blue-100 border-blue-500';
+                                            textColor = 'text-blue-800';
+                                            pulseEffect = 'shadow-[0_0_15px_rgba(59,130,246,0.6)] animate-pulse-custom';
+                                        } else {
+                                            bgColor = 'bg-orange-50 border-orange-400 hover:bg-orange-100';
+                                            textColor = 'text-orange-800';
+                                        }
+                                        badgeHtml = `<span class="px-1.5 md:px-2.5 py-0.5 rounded-full text-[8px] md:text-[10px] font-black bg-white/95 ${textColor} shadow-sm border border-white text-center leading-tight truncate w-14 sm:w-16 md:w-auto">${getStatusLabel(activeOrder.status)}</span>`;
                                     } else {
-                                        // Naranja si solo está comiendo/esperando
-                                        bgColor = 'bg-orange-50 border-orange-400 hover:bg-orange-100';
-                                        textColor = 'text-orange-800';
+                                        // Ocupada pero la cuenta ya está pagada -> Lista para limpiar
+                                        bgColor = 'bg-gray-200 border-gray-400 hover:bg-gray-300';
+                                        textColor = 'text-gray-600';
+                                        badgeHtml = `<span class="px-1.5 md:px-2.5 py-0.5 rounded-full text-[8px] md:text-[10px] font-black bg-white/95 ${textColor} shadow-sm border border-white text-center leading-tight truncate w-14 sm:w-16 md:w-auto">POR LIMPIAR</span>`;
                                     }
+                                } else {
+                                    badgeHtml = `<span class="md:hidden text-[9px] opacity-70 font-bold ${textColor}">${table.capacity} p.</span>`;
                                 }
 
                                 return `
@@ -2405,13 +2401,10 @@ function processPayment(method) {
                                         style="left: ${table.xP}%; top: ${table.yP}%; transform: translate(-50%, -50%); z-10;">
                                         
                                         <span class="font-black text-sm sm:text-base md:text-xl ${textColor} leading-none mb-0.5 text-center px-1 truncate w-full">${table.name}</span>
-                                        
                                         <span class="hidden md:inline-block text-[10px] font-bold ${textColor} opacity-70 mb-1">${table.capacity} sillas</span>
+                                        ${badgeHtml}
                                         
-                                        ${activeOrder 
-                                            ? `<span class="px-1.5 md:px-2.5 py-0.5 rounded-full text-[8px] md:text-[10px] font-black bg-white/95 ${textColor} shadow-sm border border-white text-center leading-tight truncate w-14 sm:w-16 md:w-auto">${getStatusLabel(activeOrder.status)}</span>` 
-                                            : `<span class="md:hidden text-[9px] opacity-70 font-bold ${textColor}">${table.capacity} p.</span>`
-                                        }
+                                        <button onclick="confirmDeleteTable(${table.id})" class="delete-btn absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-8 h-8 md:w-8 md:h-8 text-xs font-bold shadow-md hover:bg-red-600 flex items-center justify-center z-10 transition-transform hover:scale-110">🗑️</button>
                                     </div>
                                 `;
                             }).join('')}
@@ -2444,10 +2437,12 @@ function processPayment(method) {
 
         // ==================== MÓDULO DE MESAS Y COMANDAS (ADAPTADO A MÓVILES) ====================
         function selectTable(tableId, keepCartOpen = false) {
-            window.isMobileCartOpen = keepCartOpen; // Recuerda si el carrito estaba abierto (útil al sumar/restar items)
+            window.isMobileCartOpen = keepCartOpen; 
             selectedTable = tableId;
             const table = state.tables.find(t => t.id === tableId);
-            const activeOrder = state.orders.find(o => o.tableId === tableId && o.status !== 'delivered' && o.status !== 'cancelled');
+            
+            // MAGIA: Ahora la orden sigue viva hasta que la PAGUEN (no cuando la entreguen)
+            const activeOrder = state.orders.find(o => o.tableId === tableId && o.paymentStatus !== 'paid' && o.status !== 'cancelled');
 
             initProductCategories();
             const categories = [{ id: 'all', name: 'Todo', icon: '🍽️' }, ...state.productCategories];
@@ -2460,7 +2455,10 @@ function processPayment(method) {
                 <div class="glass bg-white/90 rounded-3xl p-3 md:p-6 w-[98%] max-w-6xl animate-slideIn h-[95vh] md:h-[90vh] flex flex-col shadow-2xl border-2 border-white overflow-hidden relative">
                     
                     <div class="flex items-center justify-between mb-3 border-b border-theme-beige pb-2 shrink-0 px-1">
-                        <h3 class="text-xl font-bold flex items-center gap-2 text-theme-greenDark">🍽️ ${table.name}</h3>
+                        <div class="flex items-center gap-3">
+                            <h3 class="text-xl font-bold flex items-center gap-2 text-theme-greenDark">🍽️ ${table.name}</h3>
+                            ${table.status !== 'free' ? `<button onclick="freeTable(${table.id})" class="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-bold transition shadow-sm flex items-center gap-1">🧹 Desocupar</button>` : ''}
+                        </div>
                         <button onclick="window.isMobileCartOpen=false; closeModal()" class="p-2 bg-white rounded-lg transition text-theme-textMuted hover:bg-theme-beige border border-theme-beige font-bold shadow-sm">✕</button>
                     </div>
 
@@ -4800,14 +4798,7 @@ function payExistingOrder(orderId, method) {
                 // Etiquetamos como mixto si combinaron pagos
                 order.paymentMethod = order.payments.length > 1 ? 'mixed' : method; 
 
-                // Liberar la mesa inteligentemente
-                if (order.tableId) {
-                    const table = state.tables.find(t => t.id === order.tableId);
-                    // Solo la liberamos de inmediato si ya se entregó la comida, de lo contrario se queda amarilla (Preparando)
-                    if (table && (order.status === 'delivered' || order.status === 'ready')) {
-                        table.status = 'available';
-                    }
-                }
+                // ❌ ELIMINADO: La mesa ya no se desocupa sola al pagar. Se queda esperando al mesero.
 
                 // Convertirlo en Venta Oficial
                 const sale = {
@@ -6611,6 +6602,26 @@ function payExistingOrder(orderId, method) {
                 showToast(`Proveedor ${supplier.name} eliminado`, 'success');
                 closeModal();
                 renderSettings(document.getElementById('contentArea')); // Refresca la pantalla
+            }
+        }
+
+        // ==================== LIBERAR MESA MANUALMENTE ====================
+        function freeTable(tableId) {
+            // Verificamos por seguridad que no tenga una cuenta abierta sin pagar
+            const unpaidOrder = state.orders.find(o => o.tableId === tableId && o.paymentStatus !== 'paid' && o.status !== 'cancelled');
+            
+            if (unpaidOrder) {
+                showToast('⚠️ No puedes desocupar la mesa, hay una cuenta sin pagar.', 'error');
+                return;
+            }
+            
+            const table = state.tables.find(t => t.id === tableId);
+            if (table) {
+                table.status = 'free';
+                saveToStorage();
+                showToast(`✅ ${table.name} desocupada y limpia`, 'success');
+                closeModal();
+                if (currentView === 'waiter') renderWaiter(document.getElementById('contentArea'));
             }
         }
    
