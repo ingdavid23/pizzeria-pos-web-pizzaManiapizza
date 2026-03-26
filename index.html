@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="es" class="h-full">
 
@@ -242,38 +243,27 @@
             user-select: none;
         }
 
-        /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
-        @media print {
+         /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
+         @media print {
             @page {
-                margin: 0 !important;
+                margin: 0 !important; /* Elimina el margen físico del navegador */
                 size: 80mm auto; /* Le dice que el alto es infinito (rollo) */
             }
             html, body {
                 margin: 0 !important;
                 padding: 0 !important;
+                /* Forzamos a que todo empiece desde la esquina superior izquierda */
+                align-items: flex-start !important; 
+                justify-content: flex-start !important;
                 height: auto !important;
                 min-height: 0 !important;
                 background-color: white !important;
             }
-            
-            /* 💡 SOLUCIÓN A LA TIRA LARGA: Desaparecemos los contenedores gigantes para que no dejen espacio en blanco */
-            #mainApp, #notifPanel, #toastContainer, #loadingScreen, #loginScreen {
-                display: none !important;
-            }
-            
-            /* Quitamos el "height: 100%" a las ventanas flotantes para que midan exactamente lo del ticket */
-            #app, #modalContainer, #modalContainer > div {
-                height: auto !important;
-                min-height: 0 !important;
-                position: static !important;
-                background: white !important;
-                box-shadow: none !important;
-            }
-
-            /* Ocultamos lo que quede y solo hacemos visible el área del ticket */
+            /* Ocultamos todo lo de la pantalla que no sea el ticket */
             body * {
                 visibility: hidden;
             }
+            /* Solo hacemos visible el contenedor del ticket y lo pegamos arriba */
             #printArea, #printArea * {
                 visibility: visible;
             }
