@@ -245,24 +245,35 @@
         /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
         @media print {
             @page {
-                margin: 0 !important; /* Elimina el margen físico del navegador */
+                margin: 0 !important;
                 size: 80mm auto; /* Le dice que el alto es infinito (rollo) */
             }
             html, body {
                 margin: 0 !important;
                 padding: 0 !important;
-                /* Forzamos a que todo empiece desde la esquina superior izquierda */
-                align-items: flex-start !important; 
-                justify-content: flex-start !important;
                 height: auto !important;
                 min-height: 0 !important;
                 background-color: white !important;
             }
-            /* Ocultamos todo lo de la pantalla que no sea el ticket */
+            
+            /* 💡 SOLUCIÓN A LA TIRA LARGA: Desaparecemos los contenedores gigantes para que no dejen espacio en blanco */
+            #mainApp, #notifPanel, #toastContainer, #loadingScreen, #loginScreen {
+                display: none !important;
+            }
+            
+            /* Quitamos el "height: 100%" a las ventanas flotantes para que midan exactamente lo del ticket */
+            #app, #modalContainer, #modalContainer > div {
+                height: auto !important;
+                min-height: 0 !important;
+                position: static !important;
+                background: white !important;
+                box-shadow: none !important;
+            }
+
+            /* Ocultamos lo que quede y solo hacemos visible el área del ticket */
             body * {
                 visibility: hidden;
             }
-            /* Solo hacemos visible el contenedor del ticket y lo pegamos arriba */
             #printArea, #printArea * {
                 visibility: visible;
             }
@@ -1766,50 +1777,15 @@ function processPayment(method) {
 
             const total = calculateCartTotal();
 
-            // CREAR LA ORDEN PRIMERO EN ESTADO PENDIENTE (Para unificar el flujo con las Mesas)
-            const orderId = Date.now();
-            const order = {
-                id: orderId,
-                type: 'counter',
-                items: [...currentCart],
+            // 💡 SOLUCIÓN: En lugar de crear la orden real aquí, creamos una orden "Virtual" 
+            // solo para mostrársela a la ventana de cobro. Si el usuario cancela, no pasa nada.
+            const dummyOrder = {
+                id: 'new_counter',
                 total: total,
-                status: 'pending', // Va a cocina
-                paymentMethod: null,
-                paymentStatus: 'pending',
-                paidAmount: 0,
-                payments: [],
-                createdAt: new Date().toISOString(),
-                createdBy: currentUser.id,
-                tableId: null
+                paidAmount: 0
             };
 
-            // Descontar inventario al momento de crear la orden
-            currentCart.forEach(cartItem => {
-                const product = state.products.find(p => p.id === cartItem.productId);
-                if (product && product.ingredients) {
-                    product.ingredients.forEach(ing => {
-                        const invItem = state.inventory.find(i => i.id === ing.id);
-                        if (invItem) {
-                            invItem.stock -= (ing.qty * cartItem.quantity);
-                            if (invItem.stock <= invItem.minStock) {
-                                addNotification('warning', `⚠️ Stock bajo: ${invItem.name}`, ['admin', 'cashier']);
-                            }
-                        }
-                    });
-                }
-            });
-            checkProductAvailability();
-
-            state.orders.push(order);
-            addNotification('info', `Nuevo pedido en mostrador #${orderId.toString().slice(-4)}`, ['kitchen']);
-            logActivity('ORDER_CREATE', `Pedido de mostrador #${orderId.toString().slice(-4)} creado por $${total}`);
-
-            // Limpiar el carrito visual y redirigir al Motor de Pagos Parciales
-            currentCart = [];
-            updateCartDisplay();
-            saveToStorage();
-
-            payExistingOrder(orderId, method);
+            showOrderPaymentModal(dummyOrder, method);
         }
 
         
@@ -4730,11 +4706,14 @@ function payExistingOrder(orderId, method) {
             const paidAmount = order.paidAmount || 0;
             const remaining = order.total - paidAmount;
             const methodLabel = method === 'cash' ? 'Efectivo 💵' : 'Transferencia 📱';
+            
+            // 💡 Ajuste para que no truene si el ID es texto en lugar de número
+            const displayId = order.id === 'new_counter' ? 'NUEVA' : order.id.toString().slice(-4);
 
             const modal = document.getElementById('modalContainer');
             modal.innerHTML = `
                 <div class="glass bg-white/90 rounded-3xl p-5 md:p-6 w-[95%] max-w-md animate-slideIn border-2 border-white shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin">
-                    <h3 class="text-xl font-bold mb-4 flex items-center gap-2 text-theme-greenDark">💳 Cobrar Pedido #${order.id.toString().slice(-4)}</h3>
+                    <h3 class="text-xl font-bold mb-4 flex items-center gap-2 text-theme-greenDark">💳 Cobrar Pedido #${displayId}</h3>
                     
                     <div class="space-y-4">
                         <div class="grid grid-cols-2 gap-3 text-center">
@@ -4774,7 +4753,7 @@ function payExistingOrder(orderId, method) {
 
                         <div class="grid grid-cols-2 gap-3 pt-2">
                             <button onclick="closeModal()" class="py-3.5 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
-                            <button onclick="processPartialPayment(${order.id}, '${method}')" id="confirmOrderPaymentBtn" class="btn-primary py-3.5 rounded-xl font-bold shadow-md" ${method === 'cash' ? 'disabled' : ''}>pagar</button>
+                            <button onclick="processPartialPayment('${order.id}', '${method}')" id="confirmOrderPaymentBtn" class="btn-primary py-3.5 rounded-xl font-bold shadow-md" ${method === 'cash' ? 'disabled' : ''}>Pagar</button>
                         </div>
                     </div>
                 </div>
@@ -4818,8 +4797,69 @@ function payExistingOrder(orderId, method) {
             }
         }
 
+        // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
         function processPartialPayment(orderId, method) {
-            const order = state.orders.find(o => o.id === orderId);
+            // Escudo anti doble clic
+            const btn = document.getElementById('confirmOrderPaymentBtn');
+            if (btn && btn.getAttribute('data-processing') === 'true') return;
+            
+            if (btn) {
+                btn.setAttribute('data-processing', 'true');
+                btn.innerHTML = '⏳ Procesando...';
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+
+            let order;
+
+            // 💡 SOLUCIÓN: Si detectamos que es una orden nueva de mostrador, LA CREAMOS REALMENTE AQUÍ.
+            if (orderId === 'new_counter') {
+                const total = calculateCartTotal();
+                const newOrderId = Date.now();
+                
+                order = {
+                    id: newOrderId,
+                    type: 'counter',
+                    items: [...currentCart],
+                    total: total,
+                    status: 'pending', // Va a cocina
+                    paymentMethod: null,
+                    paymentStatus: 'pending',
+                    paidAmount: 0,
+                    payments: [],
+                    createdAt: new Date().toISOString(),
+                    createdBy: currentUser.id,
+                    tableId: null
+                };
+
+                // Descontar inventario AHORA SÍ
+                currentCart.forEach(cartItem => {
+                    const product = state.products.find(p => p.id === cartItem.productId);
+                    if (product && product.ingredients) {
+                        product.ingredients.forEach(ing => {
+                            const invItem = state.inventory.find(i => i.id === ing.id);
+                            if (invItem) {
+                                invItem.stock -= (ing.qty * cartItem.quantity);
+                                if (invItem.stock <= invItem.minStock) {
+                                    try { addNotification('warning', `⚠️ Stock bajo: ${invItem.name}`, ['admin', 'cashier']); } catch(e){}
+                                }
+                            }
+                        });
+                    }
+                });
+                checkProductAvailability();
+
+                state.orders.push(order);
+                try { addNotification('info', `Nuevo pedido #${newOrderId.toString().slice(-4)}`, ['kitchen']); } catch(e){}
+                logActivity('ORDER_CREATE', `Pedido #${newOrderId.toString().slice(-4)} creado por $${total}`);
+
+                // Limpiamos el carrito visual
+                currentCart = [];
+                updateCartDisplay();
+            } else {
+                // Si viene de una Mesa, simplemente la buscamos en la base de datos
+                order = state.orders.find(o => String(o.id) === String(orderId));
+            }
+
             if (!order) return;
 
             const amountToPay = parseFloat(document.getElementById('partialPaymentAmount').value) || 0;
@@ -4867,8 +4907,6 @@ function payExistingOrder(orderId, method) {
                 // Etiquetamos como mixto si combinaron pagos
                 order.paymentMethod = order.payments.length > 1 ? 'mixed' : method; 
 
-                // ❌ ELIMINADO: La mesa ya no se desocupa sola al pagar. Se queda esperando al mesero.
-
                 // Convertirlo en Venta Oficial
                 const sale = {
                     id: Date.now(),
@@ -4877,7 +4915,7 @@ function payExistingOrder(orderId, method) {
                     subtotal: order.total,
                     total: order.total,
                     paymentMethod: order.paymentMethod,
-                    paymentsBreakdown: order.payments, // Guardamos la prueba de los abonos para el ticket
+                    paymentsBreakdown: order.payments,
                     timestamp: new Date().toISOString(),
                     cashierId: currentUser.id,
                     cashierName: currentUser.name
@@ -4898,7 +4936,7 @@ function payExistingOrder(orderId, method) {
                 closeModal();
                 renderView(currentView);
                 
-                // Si el mesero está viendo la mesa, le refrescamos el modal de la mesa automáticamente
+                // Si el mesero está viendo la mesa, le refrescamos el modal de la mesa
                 if (currentView === 'waiter' && selectedTable) {
                     selectTable(selectedTable);
                 }
