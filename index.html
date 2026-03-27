@@ -1910,15 +1910,20 @@ function processPayment(method) {
                         </div>
                     </div>
                     
-                    <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
+                   <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
                         <div class="grid grid-cols-2 gap-2">
                             <button type="button" onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
-                                🖨️ Imprimir
+                                🖨️ Ticket Venta
                             </button>
                             <button type="button" onclick="sendTicketByWhatsapp(${sale.id})" class="bg-green-500 hover:bg-green-600 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
                                 💬 WhatsApp
                             </button>
                         </div>
+                        
+                        <button type="button" onclick="printKitchenTicketFromPOS(${sale.orderId}, ${sale.id})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                            👨‍🍳 Imprimir Comanda de Cocina
+                        </button>
+
                         <button type="button" onclick="closeModal()" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
                             Cerrar Ventana
                         </button>
@@ -2162,6 +2167,14 @@ function processPayment(method) {
             const endTime = order.statusUpdatedAt ? new Date(order.statusUpdatedAt) : new Date();
             const waitTime = Math.floor((endTime - new Date(order.createdAt)) / 60000);
 
+            // 💡 MAGIA: Filtramos los productos para que la cocina NO vea las bebidas
+            const kitchenItems = order.items.filter(item => {
+                const prod = state.products.find(p => p.id === item.productId);
+                if (!prod) return true;
+                const cat = prod.category ? prod.category.toLowerCase() : '';
+                return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
+            });
+
             return `
                 <div class="bg-white rounded-2xl p-4 flex flex-col border border-white shadow-sm ${isHistory ? 'opacity-80 border-l-4 border-l-green-400 bg-theme-bg' : 'card-hover'} ${!isHistory && waitTime > 15 ? 'border-2 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : ''} ${!isHistory && waitTime > 10 && waitTime <= 15 ? 'border-2 border-yellow-400' : ''}">
                     <div class="flex items-center justify-between mb-3">
@@ -2175,13 +2188,13 @@ function processPayment(method) {
                             ⏱️ ${waitTime} min
                         </span>
                     </div>
-                   <div class="space-y-2 mb-4 flex-1">
-                        ${order.items.map(item => `
+                    <div class="space-y-2 mb-4 flex-1">
+                        ${kitchenItems.length > 0 ? kitchenItems.map(item => `
                             <div class="flex flex-col text-sm p-2 rounded-lg bg-theme-bg border border-theme-beige text-theme-text font-medium">
                                 <div><strong class="text-theme-greenDark mr-1">${item.quantity}x</strong> ${item.name}</div>
                                 ${item.note ? `<div class="text-xs text-red-600 font-bold mt-1 bg-red-50 p-1 rounded border border-red-100 flex gap-1"><span>⚠️</span> <span>${item.note}</span></div>` : ''}
                             </div>
-                        `).join('')}
+                        `).join('') : '<p class="text-xs text-blue-600 font-bold text-center py-3 bg-blue-50 rounded-lg border border-blue-200">🥤 Solo bebidas (Barra)</p>'}
                     </div>
                     <div class="flex items-center justify-between mt-auto border-t border-theme-beige pt-3">
                         
@@ -2217,7 +2230,6 @@ function processPayment(method) {
                 </div>
             `;
         }
-
         function updateOrderStatus(orderId, newStatus) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
@@ -2538,13 +2550,19 @@ function processPayment(method) {
                                     <span>Total:</span>
                                     <span id="tableCartTotal">$${totalCartAmount.toLocaleString()}</span>
                                 </div>
-                                <div class="space-y-2">
+                               <div class="space-y-2">
                                     <button onclick="sendTableOrder(${tableId})" class="w-full btn-primary py-3.5 rounded-xl text-sm font-bold shadow-md" ${currentCart.length === 0 ? 'disabled' : ''}>
                                         📤 Enviar a Cocina
                                     </button>
                                     <button onclick="clearCart(); window.isMobileCartOpen=false; selectTable(${tableId})" class="w-full py-3 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs transition font-bold shadow-sm" ${currentCart.length === 0 ? 'hidden' : ''}>
                                         🗑️ Vaciar Comanda
                                     </button>
+                                    
+                                    ${activeOrder ? `
+                                    <button onclick="printKitchenTicket(${activeOrder.id}, ${tableId})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-md transition flex items-center justify-center gap-2 mt-2">
+                                        👨‍🍳 Imprimir Comanda de Cocina
+                                    </button>
+                                    ` : ''}
                                 </div>
                             </div>
                         </div>
@@ -2685,9 +2703,12 @@ function processPayment(method) {
                     return;
                 }
                 const table = state.tables.find(t => t.id === tableId);
-                let order = state.orders.find(o => o.tableId === tableId && o.status !== 'delivered' && o.status !== 'cancelled');
                 
-               if (!order) {
+                // 💡 SOLUCIÓN: Buscamos cualquier orden activa (Sin pagar ni cancelar)
+                // Ya no excluimos las 'delivered', para que los postres/extras se sumen a la misma cuenta
+                let order = state.orders.find(o => o.tableId === tableId && o.paymentStatus !== 'paid' && o.status !== 'cancelled');
+                
+                if (!order) {
                     order = {
                         id: Date.now(),
                         type: 'table',
@@ -2705,6 +2726,13 @@ function processPayment(method) {
                         timestamp: new Date().toISOString()
                     };
                     state.orders.push(order);
+                } else {
+                    // 💡 MAGIA: Si el ticket ya había sido entregado, lo "revivimos" 
+                    // regresándolo a Pendiente para que la cocina prepare lo nuevo que pidieron
+                    if (order.status === 'delivered' || order.status === 'ready') {
+                        order.status = 'pending';
+                        order.createdAt = new Date().toISOString(); // Reinicia el cronómetro en la pantalla de cocina
+                    }
                 }
 
                 currentCart.forEach(cartItem => {
@@ -2716,16 +2744,13 @@ function processPayment(method) {
                         order.items.push({ ...cartItem });
                     }
 
-                    // 2. MAGIA: Descontar del inventario real en este momento
+                    // 2. Descontar del inventario real en este momento
                     const product = state.products.find(p => p.id === cartItem.productId);
                     if (product && product.ingredients) {
                         product.ingredients.forEach(ing => {
                             const invItem = state.inventory.find(i => i.id === ing.id);
                             if (invItem) {
-                                // Resta la cantidad de la receta multiplicada por los items que pidió el cliente
                                 invItem.stock -= (ing.qty * cartItem.quantity);
-                                
-                                // Si al restar se queda sin stock mínimo, lanza alerta
                                 if (invItem.stock <= invItem.minStock) {
                                     try { addNotification('warning', `⚠️ Stock bajo: ${invItem.name}`, ['admin', 'cashier']); } catch(e){}
                                 }
@@ -2734,7 +2759,6 @@ function processPayment(method) {
                     }
                 });
 
-                // 3. Revisar si algún producto se quedó sin ingredientes para ocultarlo del menú
                 checkProductAvailability();
 
                 // Actualizar total de la mesa y bloquearla
@@ -2748,6 +2772,7 @@ function processPayment(method) {
                 currentCart = [];
                 window.isMobileCartOpen = false; // Cerramos el carrito en el celular después de enviar
                 saveToStorage();
+                
                 showToast('✅ Orden enviada a cocina e Inventario actualizado', 'success');
 
                 const modal = document.getElementById('modalContainer');
@@ -4207,55 +4232,115 @@ function saveNewProduct() {
             renderUsers(document.getElementById('contentArea'));
         }
 
+        
         // ==================== CASH REGISTER MODULE ====================
         function renderCashRegister(container) {
             const cr = state.cashRegister;
-            const todayMovements = cr.movements.filter(m =>
-                new Date(m.timestamp).toDateString() === new Date().toDateString()
-            );
             
-            // Sumas de ingresos y egresos
-            const cashSales = todayMovements.filter(m => m.type === 'sale' && m.paymentMethod === 'cash').reduce((sum, m) => sum + m.amount, 0);
-            const transferSales = todayMovements.filter(m => m.type === 'sale' && m.paymentMethod === 'transfer').reduce((sum, m) => sum + m.amount, 0);
-            const totalExpenses = todayMovements.filter(m => m.type === 'expense').reduce((sum, m) => sum + Math.abs(m.amount), 0);
+            // 🛡️ Lógica de Fechas (Idéntica a la de Pedidos para evitar desfases de horario)
+            const getLocalYYYYMMDD = (dateObj) => {
+                const d = new Date(dateObj);
+                if (isNaN(d)) return "";
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+
+            const todayLocalStr = getLocalYYYYMMDD(new Date());
+
+            if (typeof window.selectedCashDate === 'undefined' || !window.selectedCashDate) {
+                window.selectedCashDate = todayLocalStr; 
+            }
+
+            const targetDateStr = window.selectedCashDate;
+            const isToday = targetDateStr === todayLocalStr;
+
+            // Filtramos los movimientos por el día seleccionado en el calendario
+            const filteredMovements = (cr.movements || []).filter(m => {
+                if (!m.timestamp) return false;
+                return getLocalYYYYMMDD(m.timestamp) === targetDateStr;
+            });
+            
+            // Sumas de ingresos y egresos de ese día específico
+            const cashSales = filteredMovements.filter(m => m.type === 'sale' && m.paymentMethod === 'cash').reduce((sum, m) => sum + m.amount, 0);
+            const transferSales = filteredMovements.filter(m => m.type === 'sale' && m.paymentMethod === 'transfer').reduce((sum, m) => sum + m.amount, 0);
+            const totalExpenses = filteredMovements.filter(m => m.type === 'expense').reduce((sum, m) => sum + Math.abs(m.amount), 0);
+
+            // Buscamos cuánto fue el fondo inicial de ESE día
+            const openMovement = filteredMovements.find(m => m.type === 'open');
+            const dayInitialAmount = openMovement ? openMovement.amount : (isToday ? cr.initialAmount : 0);
 
             container.innerHTML = `
-                <div class="animate-slideIn">
-                    <h2 class="text-2xl font-bold mb-6 flex items-center gap-3 text-theme-greenDark">💵 Caja Registradora</h2>
+                <div class="animate-slideIn h-full flex flex-col">
+                    
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4 gap-4">
+                        <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">💵 Caja Registradora</h2>
+                        
+                        <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-theme-beige shadow-sm">
+                            <span class="text-xl">📅</span>
+                            <input type="date" id="cashDatePicker" value="${targetDateStr}" 
+                                onchange="changeCashDate(this.value)"
+                                class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
+                            
+                            ${!isToday ? `
+                                <button onclick="changeCashDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">
+                                    Ir a Hoy
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="glass bg-white/60 rounded-2xl p-6 border border-white shadow-sm">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-y-auto scrollbar-thin pb-4">
+                        
+                        <div class="glass bg-white/60 rounded-2xl p-6 border border-white shadow-sm h-fit">
                             <div class="flex items-center justify-between mb-6 pb-4 border-b border-theme-beige">
-                                <h3 class="font-extrabold text-lg text-theme-text">Estado de Caja</h3>
-                                <span class="px-4 py-2 rounded-full ${cr.isOpen ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} font-bold shadow-sm">
-                                    ${cr.isOpen ? '🟢 Abierta' : '🔴 Cerrada'}
-                                </span>
+                                <h3 class="font-extrabold text-lg text-theme-text">${isToday ? 'Estado de Caja' : 'Resumen del Día'}</h3>
+                                ${isToday ? `
+                                    <span class="px-4 py-2 rounded-full ${cr.isOpen ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} font-bold shadow-sm">
+                                        ${cr.isOpen ? '🟢 Abierta' : '🔴 Cerrada'}
+                                    </span>
+                                ` : ''}
                             </div>
                             
-                            ${cr.isOpen ? `
+                            ${isToday && !cr.isOpen ? `
+                                <div class="text-center py-12">
+                                    <p class="text-theme-textMuted mb-6 font-medium text-lg">La caja se encuentra cerrada</p>
+                                    <button onclick="showOpenCashModal()" class="btn-primary font-bold px-8 py-4 rounded-xl shadow-lg text-lg">
+                                        🔓 Abrir Caja Ahora
+                                    </button>
+                                </div>
+                            ` : `
                                 <div class="space-y-4 mb-6">
-                                    <div class="flex justify-between p-3 rounded-xl bg-white border border-theme-beige shadow-sm">
-                                        <span class="font-bold text-theme-textMuted">Abierta por:</span>
-                                        <span class="font-extrabold text-theme-text">${state.users.find(u => u.id === cr.openedBy)?.name || 'Sistema'}</span>
-                                    </div>
+                                    ${isToday ? `
+                                        <div class="flex justify-between p-3 rounded-xl bg-white border border-theme-beige shadow-sm">
+                                            <span class="font-bold text-theme-textMuted">Abierta por:</span>
+                                            <span class="font-extrabold text-theme-text">${state.users.find(u => u.id === cr.openedBy)?.name || 'Sistema'}</span>
+                                        </div>
+                                    ` : ''}
                                     <div class="flex justify-between p-3 rounded-xl bg-theme-bg border border-theme-beige shadow-inner">
                                         <span class="font-bold text-theme-textMuted">Fondo inicial:</span>
-                                        <span class="font-extrabold text-theme-text">$${cr.initialAmount.toLocaleString()}</span>
+                                        <span class="font-extrabold text-theme-text">$${dayInitialAmount.toLocaleString()}</span>
                                     </div>
                                     <div class="flex justify-between p-3 rounded-xl bg-green-50 border border-green-200">
                                         <span class="font-bold text-green-700">Ingresos efectivo:</span>
                                         <span class="font-extrabold text-green-600">+$${cashSales.toLocaleString()}</span>
+                                    </div>
+                                    <div class="flex justify-between p-3 rounded-xl bg-blue-50 border border-blue-200">
+                                        <span class="font-bold text-blue-700">Ingresos Transferencia:</span>
+                                        <span class="font-extrabold text-blue-600">+$${transferSales.toLocaleString()}</span>
                                     </div>
                                     <div class="flex justify-between p-3 rounded-xl bg-red-50 border border-red-200">
                                         <span class="font-bold text-red-700">Gastos / Retiros:</span>
                                         <span class="font-extrabold text-red-600">-$${totalExpenses.toLocaleString()}</span>
                                     </div>
                                     <div class="flex justify-between p-5 rounded-2xl bg-white border-2 border-theme-green shadow-sm mt-4">
-                                        <span class="font-extrabold text-lg text-theme-text">Dinero Físico en Caja:</span>
-                                        <span class="font-extrabold text-2xl text-theme-greenDark">$${(cr.initialAmount + cashSales - totalExpenses).toLocaleString()}</span>
+                                        <span class="font-extrabold text-lg text-theme-text">${isToday ? 'Dinero Físico en Caja:' : 'Efectivo Final del Día:'}</span>
+                                        <span class="font-extrabold text-2xl text-theme-greenDark">$${(dayInitialAmount + cashSales - totalExpenses).toLocaleString()}</span>
                                     </div>
                                 </div>
                                 
+                                ${isToday && cr.isOpen ? `
                                 <div class="grid grid-cols-2 gap-3">
                                     <button onclick="showAddExpenseModal()" class="w-full bg-red-100 hover:bg-red-200 text-red-700 border border-red-300 font-bold py-4 rounded-xl shadow-sm transition flex justify-center items-center gap-2">
                                         ➖ Registrar Gasto
@@ -4264,20 +4349,14 @@ function saveNewProduct() {
                                         🔒 Corte de Caja
                                     </button>
                                 </div>
-                            ` : `
-                                <div class="text-center py-12">
-                                    <p class="text-theme-textMuted mb-6 font-medium text-lg">La caja se encuentra cerrada</p>
-                                    <button onclick="showOpenCashModal()" class="btn-primary font-bold px-8 py-4 rounded-xl shadow-lg text-lg">
-                                        🔓 Abrir Caja Ahora
-                                    </button>
-                                </div>
+                                ` : ''}
                             `}
                         </div>
 
-                        <div class="glass bg-white/60 rounded-2xl p-6 border border-white shadow-sm">
-                            <h3 class="font-extrabold text-lg mb-4 text-theme-text border-b border-theme-beige pb-4">Movimientos de Hoy</h3>
-                            <div class="space-y-3 max-h-[500px] overflow-auto scrollbar-thin pr-2">
-                                ${todayMovements.length > 0 ? todayMovements.slice().reverse().map(m => `
+                        <div class="glass bg-white/60 rounded-2xl p-6 border border-white shadow-sm flex flex-col h-full min-h-[400px]">
+                            <h3 class="font-extrabold text-lg mb-4 text-theme-text border-b border-theme-beige pb-4 shrink-0">Movimientos de la Fecha</h3>
+                            <div class="space-y-3 flex-1 overflow-auto scrollbar-thin pr-2">
+                                ${filteredMovements.length > 0 ? filteredMovements.slice().reverse().map(m => `
                                     <div class="flex items-center justify-between p-4 rounded-xl bg-white border border-theme-beige shadow-sm">
                                         <div>
                                             <p class="font-extrabold text-theme-text flex items-center gap-2">
@@ -4292,12 +4371,19 @@ function saveNewProduct() {
                                             ${m.paymentMethod ? `<p class="text-[10px] font-bold mt-1 ${m.paymentMethod === 'cash' ? 'text-green-600 bg-green-100' : 'text-blue-600 bg-blue-100'} inline-block px-2 py-0.5 rounded-md uppercase">${m.paymentMethod === 'cash' ? 'Efectivo' : 'Transf.'}</p>` : ''}
                                         </div>
                                     </div>
-                                `).join('') : '<p class="text-theme-textMuted font-medium text-center py-12">Sin movimientos registrados hoy</p>'}
+                                `).join('') : '<p class="text-theme-textMuted font-medium text-center py-12">Sin movimientos registrados en esta fecha</p>'}
                             </div>
                         </div>
+
                     </div>
                 </div>
             `;
+        }
+
+        // ==================== CONTROLADOR DE FECHA DE CAJA ====================
+        function changeCashDate(dateStr) {
+            window.selectedCashDate = dateStr;
+            renderCashRegister(document.getElementById('contentArea'));
         }
 
         // ==================== FUNCIONES PARA ABRIR CAJA ====================
@@ -4601,6 +4687,12 @@ function saveNewProduct() {
                                 </div>
                                 
                                 <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-theme-beige w-full justify-end">
+                                    ${order.paymentStatus !== 'paid' ? `
+                                        <button onclick="printPreCheck(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-theme-text hover:bg-gray-200 border border-gray-300 transition shadow-sm flex items-center gap-2">
+                                            🖨️ Ver Pre-Cuenta
+                                        </button>
+                                    ` : ''}
+
                                     ${order.status === 'delivered' && order.paymentStatus !== 'paid' ? `
                                         <button onclick="payExistingOrder(${order.id}, 'cash')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-green-500 text-white hover:bg-green-600 transition shadow-sm flex items-center gap-2">
                                             💵 Cobrar Efectivo
@@ -6765,10 +6857,18 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-        // ==================== TICKET DE COCINA (COMANDERO) ====================
-        function printKitchenTicket(orderId) {
+       // ==================== TICKET DE COCINA (COMANDERO) ====================
+       function printKitchenTicket(orderId, tableId = null) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
+
+            // 💡 MAGIA: Filtramos para imprimir
+            const kitchenItems = order.items.filter(item => {
+                const prod = state.products.find(p => p.id === item.productId);
+                if (!prod) return true;
+                const cat = prod.category ? prod.category.toLowerCase() : '';
+                return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
+            });
 
             const modal = document.getElementById('modalContainer');
             
@@ -6790,7 +6890,7 @@ function payExistingOrder(orderId, method) {
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
-                            ${order.items.map(item => `
+                            ${kitchenItems.length > 0 ? kitchenItems.map(item => `
                                 <div class="flex justify-start items-start mb-2 font-bold text-black border-b border-gray-300 pb-2">
                                     <span class="w-8 font-black text-xl">${item.quantity}x</span>
                                     <span class="flex-1 text-base leading-tight">
@@ -6798,7 +6898,7 @@ function payExistingOrder(orderId, method) {
                                         ${item.note ? `<br><span style="font-size:14px; font-weight:900; padding:2px; display:inline-block; border:2px solid black; margin-top:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
                                     </span>
                                 </div>
-                            `).join('')}
+                            `).join('') : '<div class="text-center py-4 font-black text-[14px] border-b border-gray-300">SOLO BEBIDAS</div>'}
                         </div>
 
                         <div class="text-center mt-5 pt-3 border-t-2 border-dashed border-black text-[12px] font-black text-black">
@@ -6807,23 +6907,95 @@ function payExistingOrder(orderId, method) {
                     </div>
                     
                     <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
-                        <button type="button" onclick="window.print()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                        <button type="button" onclick="window.print()" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
                             🖨️ Imprimir Comanda
                         </button>
-                        <button type="button" onclick="closeModal()" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
-                            Cerrar
-                        </button>
+                        
+                        ${tableId ? `
+                            <button type="button" onclick="closeModal(); setTimeout(() => selectTable(${tableId}), 150)" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
+                                ⬅️ Volver a la Mesa
+                            </button>
+                        ` : `
+                            <button type="button" onclick="closeModal()" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
+                                Cerrar
+                            </button>
+                        `}
                     </div>
                 </div>  
             `;
             modal.classList.remove('hidden');
         }
 
+        // ==================== COMANDA DE COCINA (CON RETORNO AL POS) ====================
+        function printKitchenTicketFromPOS(orderId, saleId) {
+            const order = state.orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            // 💡 MAGIA: Filtramos para imprimir
+            const kitchenItems = order.items.filter(item => {
+                const prod = state.products.find(p => p.id === item.productId);
+                if (!prod) return true;
+                const cat = prod.category ? prod.category.toLowerCase() : '';
+                return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
+            });
+
+            const modal = document.getElementById('modalContainer');
+            
+            modal.innerHTML = `
+                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative z-[99999]">
+                    
+                    <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
+                        
+                        <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
+                            <h3 class="text-3xl font-black uppercase tracking-widest mb-2 print:mt-0">COCINA</h3>
+                            <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
+                                ${order.type === 'table' ? `MESA ${order.tableId}` : 'MOSTRADOR'}
+                            </p>
+                            <p class="text-[12px] mt-2 font-bold">${new Date(order.createdAt).toLocaleString('es-MX')}</p>
+                            <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
+                        </div>
+
+                        <div class="space-y-3 mb-4 text-[12px] leading-tight">
+                            <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
+                                CANT. / DESCRIPCIÓN
+                            </div>
+                            ${kitchenItems.length > 0 ? kitchenItems.map(item => `
+                                <div class="flex justify-start items-start mb-2 font-bold text-black border-b border-gray-300 pb-2">
+                                    <span class="w-8 font-black text-xl">${item.quantity}x</span>
+                                    <span class="flex-1 text-base leading-tight">
+                                        ${item.name.toUpperCase()}
+                                        ${item.note ? `<br><span style="font-size:14px; font-weight:900; padding:2px; display:inline-block; border:2px solid black; margin-top:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
+                                    </span>
+                                </div>
+                            `).join('') : '<div class="text-center py-4 font-black text-[14px] border-b border-gray-300">SOLO BEBIDAS</div>'}
+                        </div>
+
+                        <div class="text-center mt-5 pt-3 border-t-2 border-dashed border-black text-[12px] font-black text-black">
+                            <p>*** FIN DE COMANDA ***</p>
+                        </div>
+                    </div>
+                    
+                    <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
+                        <button type="button" onclick="window.print()" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                            🖨️ Imprimir Comanda
+                        </button>
+                        <button type="button" onclick="showReceipt(state.sales.find(s => s.id === ${saleId}))" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300 flex items-center justify-center gap-2">
+                            ⬅️ Volver al Ticket de Venta
+                        </button>
+                    </div>
+                </div>  
+            `;
+        }
 
         // ==================== PRE-CUENTA (TICKET PARA LA MESA SIN PAGAR) ====================
         function printPreCheck(orderId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
+
+            // 💡 MAGIA: Detecta si lo abrió el mesero o el cajero para saber a dónde regresar
+            const isWaiter = currentView === 'waiter';
+            const returnAction = isWaiter ? `closeModal(); setTimeout(() => selectTable(${order.tableId}), 150)` : `closeModal()`;
+            const returnText = isWaiter ? '⬅️ Regresar a la Mesa' : 'Cerrar Ventana';
 
             const modal = document.getElementById('modalContainer');
             
@@ -6840,7 +7012,9 @@ function payExistingOrder(orderId, method) {
                             <p class="text-[10px] uppercase font-bold print:leading-tight">11a. Calle Pte. No 62. C.P 30068</p>
                             <p class="text-[10px] uppercase font-bold print:leading-tight">Comitán de Domínguez, Chis.</p>
                             <p class="text-[10px] mt-1 font-bold">${new Date().toLocaleString('es-MX')}</p>
-                            <p class="text-[14px] mt-2 font-black border-2 border-black px-2 py-1 inline-block">MESA ${order.tableId}</p>
+                            <p class="text-[14px] mt-2 font-black border-2 border-black px-2 py-1 inline-block">
+                                ${order.type === 'table' ? `MESA ${order.tableId}` : 'MOSTRADOR'}
+                            </p>
                         </div>
 
                         <div class="space-y-2 mb-4 text-[11px] leading-tight">
@@ -6876,15 +7050,16 @@ function payExistingOrder(orderId, method) {
                         <button type="button" onclick="window.print()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
                             🖨️ Imprimir Pre-Cuenta
                         </button>
-                        <button type="button" onclick="closeModal(); setTimeout(() => selectTable(${order.tableId}), 150)" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
-                            Regresar a la Mesa
+                        <button type="button" onclick="${returnAction}" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
+                            ${returnText}
                         </button>
                     </div>
                 </div>  
             `;
             modal.classList.remove('hidden');
         }
-   
+
+
     </script>
 </body>
 
