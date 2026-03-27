@@ -598,65 +598,93 @@ function clearAllNotifications() {
 
         async function saveToStorage() {
             try {
-                // Limpiamos las pizzas temporales de "mitad y mitad" antes de guardar en la nube
-                const cleanState = { 
-                    ...state, 
-                    products: state.products.filter(p => !p.isVirtual) 
-                };
+                // 1. Clonamos el estado para manipularlo antes de enviarlo
+                const cleanState = { ...state };
                 
+                // 🌟 MAGIA ARQUITECTÓNICA: Borramos las ventas de este paquete. 
+                // Ya no vivirán en el documento de 1MB, vivirán en su propia colección.
+                delete cleanState.sales;
+                
+                // Limpiamos las pizzas virtuales temporales
+                cleanState.products = cleanState.products.filter(p => !p.isVirtual);
+                
+                // 2. Guardamos solo el "esqueleto" (mesas, inventario, productos)
                 await db.collection('pizzaManager').doc(currentBranch).set(cleanState);
             } catch (error) {
                 console.error("Error al guardar en Firebase:", error);
-                showToast('Error al guardar datos', 'error');
+                showToast('Error al sincronizar datos estructurales', 'error');
             }
         }
+
+        // ==================== ARCHIVERO INFINITO DE VENTAS ====================
+        async function saveSaleToCloud(sale) {
+            try {
+                // Crea una sub-carpeta llamada 'sales' dentro de tu sucursal y guarda el ticket con su propio ID
+                await db.collection('pizzaManager').doc(currentBranch)
+                        .collection('sales').doc(sale.id.toString()).set(sale);
+            } catch (error) {
+                console.error("Error al subir el ticket a la nube:", error);
+            }
+        }
+        // 💡 Pon esta variable HASTA ARRIBA de tu código, junto a 'let stateUnsubscribe = null;'
+        let salesUnsubscribe = null; 
+
         function loadFromStorage(branchId) {
             return new Promise((resolve) => {
-                if (stateUnsubscribe) {
-                    stateUnsubscribe(); // Apaga la conexión a la sucursal anterior si existía
-                }
+                if (stateUnsubscribe) stateUnsubscribe();
+                if (salesUnsubscribe) salesUnsubscribe(); // Apagar conexión de ventas vieja
                 
                 currentBranch = branchId;
                 let isFirstLoad = true; 
                 
-                // Conecta en tiempo real con la base de datos de ESA sucursal
+                // 1. Conexión del Esqueleto (Mesas, Inventario)
                 stateUnsubscribe = db.collection('pizzaManager').doc(currentBranch).onSnapshot((doc) => {
                     if (doc.exists) {
                         const incomingData = doc.data();
-
-                        // Lógica de campana para cocina
-                        if (!isFirstLoad && currentUser && currentUser.role === 'kitchen') {
-                            const oldOrdersCount = state.orders ? state.orders.length : 0;
-                            const newOrdersCount = incomingData.orders ? incomingData.orders.length : 0;
-                            if (newOrdersCount > oldOrdersCount) playKitchenBell();
-                        }
-
+                        
+                        // Rescatamos las ventas que ya teníamos en memoria para que no se borren al actualizar el esqueleto
+                        const currentSales = state.sales || []; 
                         state = { ...DEFAULT_DATA, ...incomingData };
+                        state.sales = currentSales; 
+
+                        if (!isFirstLoad && currentUser && currentUser.role === 'kitchen') {
+                            const oldOrders = state.orders ? state.orders.length : 0;
+                            const newOrders = incomingData.orders ? incomingData.orders.length : 0;
+                            if (newOrders > oldOrders) playKitchenBell();
+                        }
 
                         if (currentUser) {
                             renderView(currentView); 
                             updateNotificationBadge();
                         }
                     } else {
-                        // 🛑 PARCHE DE SEGURIDAD: Solo carga los datos por defecto EN PANTALLA, 
-                        // pero YA NO LOS GUARDA automáticamente en Firebase para evitar borrar tus datos reales si fue un error de red.
-                        console.warn("No se encontró el documento de la sucursal. Cargando entorno de prueba...");
                         state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+                        state.sales = [];
                         if (currentUser) renderView(currentView);
                     }
-                    
                     isFirstLoad = false;
                     resolve();
                 }, (error) => {
-                    console.error("Error crítico de Firebase (Posible cuota excedida o sin permisos):", error);
-                    showToast('Error al conectar con la base de datos', 'error');
-                    
-                    // Si falla, al menos dejamos que el sistema corra offline con lo último que tenga
-                    if (Object.keys(state).length === 0) {
-                        state = JSON.parse(JSON.stringify(DEFAULT_DATA));
-                    }
+                    console.error("Error de Firebase:", error);
                     resolve();
                 });
+
+                // 🚀 2. CONEXIÓN AL ARCHIVERO INFINITO (SOLO DESCARGA HOY)
+                const todayStart = new Date();
+                todayStart.setHours(0,0,0,0);
+                
+                salesUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
+                    .collection('sales')
+                    .where('timestamp', '>=', todayStart.toISOString())
+                    .onSnapshot(snapshot => {
+                        state.sales = [];
+                        snapshot.forEach(doc => state.sales.push(doc.data()));
+                        
+                        // Refrescar gráficas o historial si alguien hace una venta en otra tablet
+                        if(!isFirstLoad && (currentView === 'dashboard' || currentView === 'tickethistory' || currentView === 'reports')) {
+                            renderView(currentView);
+                        }
+                    });
             });
         }
 
@@ -5023,6 +5051,12 @@ function payExistingOrder(orderId, method) {
                     cashierId: currentUser.id,
                     cashierName: currentUser.name
                 };
+                
+                // 🚀 NUEVA ARQUITECTURA: Lo mandamos directo a su carpeta infinita
+                saveSaleToCloud(sale);
+                
+                // Lo dejamos temporalmente en la memoria visual para que la pantalla no parpadee
+                if (!state.sales) state.sales = [];
                 state.sales.push(sale);
 
                 saveToStorage();
@@ -5032,6 +5066,7 @@ function payExistingOrder(orderId, method) {
                 showReceipt(sale);
 
             } else {
+                // ... (el resto del código del else se queda igual)
                 // Aún debe dinero (Abono Parcial Exitoso)
                 const remaining = order.total - order.paidAmount;
                 saveToStorage();
@@ -6604,11 +6639,57 @@ function payExistingOrder(orderId, method) {
             window.selectedOrdersDate = dateStr;
             renderOrders(document.getElementById('contentArea'));
         }
-        function changeTicketsDate(dateStr) {
+        // ==================== VIAJE EN EL TIEMPO (HISTORIAL EN LA NUBE) ====================
+        async function changeTicketsDate(dateStr) {
             window.selectedTicketsDate = dateStr;
-            renderTicketHistory(document.getElementById('contentArea'));
-        }
+            const container = document.getElementById('contentArea');
+            
+            // Lógica de fecha local
+            const getLocalYYYYMMDD = (dateObj) => {
+                const d = new Date(dateObj);
+                if (isNaN(d)) return "";
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+            const todayLocalStr = getLocalYYYYMMDD(new Date());
 
+            // Si pide ver el día de HOY, usamos la memoria ultrarrápida
+            if(dateStr === todayLocalStr) {
+                renderTicketHistory(container);
+                return;
+            }
+
+            // Si pide el pasado, ponemos pantalla de carga y vamos a Firebase
+            container.innerHTML = `
+                <div class="h-full flex flex-col items-center justify-center animate-pulse">
+                    <div class="text-5xl mb-4 drop-shadow-md">☁️</div>
+                    <p class="text-theme-greenDark font-bold text-lg">Buscando tickets del ${dateStr} en el archivo infinito...</p>
+                </div>
+            `;
+            
+            const start = new Date(dateStr + 'T00:00:00');
+            const end = new Date(dateStr + 'T23:59:59');
+            
+            try {
+                // Buscamos solo en esa fecha
+                const snapshot = await db.collection('pizzaManager').doc(currentBranch)
+                    .collection('sales')
+                    .where('timestamp', '>=', start.toISOString())
+                    .where('timestamp', '<=', end.toISOString())
+                    .get();
+                    
+                // Reemplazamos temporalmente la memoria visual con los datos del pasado
+                state.sales = [];
+                snapshot.forEach(doc => state.sales.push(doc.data()));
+                
+                renderTicketHistory(container);
+            } catch(e) {
+                console.error("Error al descargar historial:", e);
+                showToast('Error al contactar el servidor', 'error');
+            }
+        }
         // ==================== GESTOR DE CATEGORÍAS DE INVENTARIO (CON AUTO-MIGRACIÓN) ====================
         function manageInventoryCategoriesModal() {
             // Seguridad inicial
