@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="es" class="h-full">
 
@@ -243,37 +242,57 @@
             user-select: none;
         }
 
-         /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
-         @media print {
+        /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
+        @media print {
             @page {
-                margin: 0 !important; /* Elimina el margen físico del navegador */
-                size: 80mm auto; /* Le dice que el alto es infinito (rollo) */
+                margin: 0 !important;
+                size: 80mm auto; /* Papel de rollo continuo */
             }
+            
             html, body {
                 margin: 0 !important;
                 padding: 0 !important;
-                /* Forzamos a que todo empiece desde la esquina superior izquierda */
-                align-items: flex-start !important; 
-                justify-content: flex-start !important;
+                background: white !important;
                 height: auto !important;
-                min-height: 0 !important;
-                background-color: white !important;
             }
-            /* Ocultamos todo lo de la pantalla que no sea el ticket */
-            body * {
-                visibility: hidden;
+
+            /* 1. Ocultar TODO el sistema de fondo para que no genere páginas extra */
+            #app > :not(#modalContainer) {
+                display: none !important;
             }
-            /* Solo hacemos visible el contenedor del ticket y lo pegamos arriba */
-            #printArea, #printArea * {
-                visibility: visible;
+
+            /* 2. EL SECRETO: Quitar el 'fixed' al modal para que NO se repita como sello */
+            #modalContainer {
+                position: static !important; 
+                display: block !important;
+                height: auto !important;
+                background: white !important;
+                padding: 0 !important;
             }
+
+            /* 3. Asegurar que la ventana interna del ticket fluya normal */
+            #modalContainer > div {
+                position: static !important;
+                height: auto !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: white !important;
+                padding: 0 !important;
+            }
+
+            /* 4. Ocultar los botones de "Imprimir" y "Cerrar" para que no salgan en el papel */
+            .print\:hidden {
+                display: none !important;
+            }
+
+            /* 5. Ajustar el ticket exacto al papel de 80mm */
             #printArea {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
+                position: static !important;
+                width: 80mm !important;
+                max-width: 100% !important;
                 margin: 0 !important;
                 padding: 0 !important;
+                box-shadow: none !important;
             }
         }
     </style>
