@@ -2896,57 +2896,110 @@ function processPayment(method) {
             }
         }
         // ==================== TICKET HISTORY MODULE ====================
-       // ==================== TICKET HISTORY MODULE ====================
-       function renderTicketHistory(container) {
-            // 1. Filtrar solo las ventas de HOY y ordenarlas de la más reciente a la más antigua
-            const todayStr = new Date().toDateString();
-            const todaySales = state.sales
-                .filter(s => new Date(s.timestamp).toDateString() === todayStr)
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+     // ==================== TICKET HISTORY MODULE ====================
+     function renderTicketHistory(container) {
+            const getLocalYYYYMMDD = (dateObj) => {
+                const d = new Date(dateObj);
+                if (isNaN(d)) return "";
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
 
+            const todayLocalStr = getLocalYYYYMMDD(new Date());
+
+            if (typeof window.selectedTicketsDate === 'undefined' || !window.selectedTicketsDate) {
+                window.selectedTicketsDate = todayLocalStr; 
+            }
+
+            const targetDateStr = window.selectedTicketsDate;
+
+            // 1. Dibujamos la estructura base
             container.innerHTML = `
                 <div class="animate-slideIn h-full flex flex-col">
-                    <div class="flex items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4">
-                        <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">🧾 Historial de Tickets (Hoy)</h2>
-                        <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
-                            Total: ${todaySales.length} tickets
-                        </span>
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4 gap-4">
+                        <div class="flex items-center gap-3">
+                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">🧾 Historial de Tickets</h2>
+                            <span id="ticketCountBadge" class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
+                                Cargando...
+                            </span>
+                        </div>
+
+                        <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-theme-beige shadow-sm">
+                            <span class="text-xl">📅</span>
+                            <input type="date" id="ticketsDatePicker" value="${targetDateStr}" 
+                                onchange="changeTicketsDate(this.value)"
+                                class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
+                            
+                            ${targetDateStr !== todayLocalStr ? 
+                                `<button onclick="changeTicketsDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
+                            : ''}
+                        </div>
                     </div>
                     
-                    <div class="space-y-4 flex-1 overflow-auto scrollbar-thin pr-2 pb-4">
-                        ${todaySales.length === 0 ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay tickets registrados el día de hoy</p>' : 
-                        todaySales.map(sale => `
+                    <div id="ticketHistoryList" class="space-y-4 flex-1 overflow-auto scrollbar-thin pr-2 pb-4 relative">
+                        <div class="absolute inset-0 flex flex-col items-center justify-center animate-pulse">
+                            <div class="text-4xl mb-3">☁️</div>
+                            <p class="text-theme-greenDark font-bold">Conectando con la nube...</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 2. Limpiar conexión vieja
+            if (window.historyUnsubscribe) window.historyUnsubscribe();
+
+            const start = new Date(targetDateStr + 'T00:00:00');
+            const end = new Date(targetDateStr + 'T23:59:59');
+
+            // 3. Conexión en tiempo real a Firebase
+            window.historyUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
+                .collection('sales')
+                .where('timestamp', '>=', start.toISOString())
+                .where('timestamp', '<=', end.toISOString())
+                .onSnapshot(snapshot => {
+                    const listContainer = document.getElementById('ticketHistoryList');
+                    if (!listContainer) return;
+
+                    const activeSales = [];
+                    snapshot.forEach(doc => activeSales.push(doc.data()));
+                    activeSales.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+                    const badge = document.getElementById('ticketCountBadge');
+                    if (badge) badge.textContent = `Total: ${activeSales.length} tickets`;
+
+                    listContainer.innerHTML = activeSales.length === 0 
+                        ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay cobros registrados en esta fecha.</p>' 
+                        : activeSales.map(sale => `
                             <div class="glass bg-white/80 border border-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
                                 <div>
                                     <p class="font-extrabold text-theme-text text-lg">Ticket #${sale.orderId.toString().slice(-4)}</p>
                                     <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(sale.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
                                     <p class="text-sm font-medium mt-2 text-theme-text">${sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
                                 </div>
-                                <div class="text-left md:text-right flex flex-col justify-between items-start md:items-end">
+                                <div class="text-left md:text-right flex flex-col justify-between items-start md:items-end h-full">
                                     <p class="font-extrabold text-xl text-theme-greenDark mb-3">$${sale.total.toLocaleString()}</p>
-                                    <div class="flex gap-2">
+                                    <div class="flex gap-2 mt-auto">
                                         <span class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">
                                             ${sale.paymentMethod === 'cash' ? '💵 Efectivo' : '📱 Transferencia'}
                                         </span>
                                         <button onclick='reprintTicket(${sale.id})' class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-theme-bg border border-theme-beige hover:bg-theme-beige transition text-theme-text">
                                             🖨️ Ver Ticket
                                         </button>
+                                        <button onclick="confirmForceDeleteTicket(${sale.id}, ${sale.orderId})" class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition">
+                                            🗑️ Borrar
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
+                        `).join('');
+                }, error => {
+                    console.error("Error:", error);
+                    const listContainer = document.getElementById('ticketHistoryList');
+                    if (listContainer) listContainer.innerHTML = '<p class="text-red-500 text-center py-12 font-bold">Error al sincronizar con la nube.</p>';
+                });
         }
-
-        function reprintTicket(saleId) {
-            const sale = state.sales.find(s => s.id === saleId);
-            if (sale) {
-                showReceipt(sale);
-            }
-        }
-
 
 
        // ==================== INVENTORY MODULE ====================
@@ -4768,7 +4821,8 @@ function saveNewProduct() {
             setTimeout(() => document.getElementById('adminAuthPassword').focus(), 100);
         }
 
-        function executeDeleteOrder(orderId) {
+        // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
+        async function executeDeleteOrder(orderId) {
             const pwdInput = document.getElementById('adminAuthPassword').value;
             
             // Verificación de la clave maestra solicitada
@@ -4786,7 +4840,7 @@ function saveNewProduct() {
                 // Liberar la mesa
                 if (orderToRest.tableId && orderToRest.status !== 'delivered' && orderToRest.status !== 'cancelled') {
                     const table = state.tables.find(t => t.id === orderToRest.tableId);
-                    if (table) table.status = 'available';
+                    if (table) table.status = 'available'; // O 'free' dependiendo de tu versión
                 }
                 
                 // Devolver insumos al stock general
@@ -4801,10 +4855,22 @@ function saveNewProduct() {
                 });
             }
 
-            // 2. Erradicar de la lista de Pedidos (Lo desaparece de Cocina y Meseros)
+            // 2. Erradicar de la lista de Pedidos temporales (Lo desaparece de Cocina y Meseros)
             state.orders = state.orders.filter(o => o.id !== orderId);
 
-            // 3. Erradicar de la matriz de Ventas (Lo desaparece de las Estadísticas y Reportes)
+            // 3. 🚀 NUEVO: ERRADICAR DEL ARCHIVERO INFINITO DE FIREBASE
+            const saleToDelete = state.sales.find(s => s.orderId === orderId);
+            if (saleToDelete) {
+                try {
+                    // Vamos a la carpeta específica en la nube y lo pulverizamos
+                    await db.collection('pizzaManager').doc(currentBranch)
+                        .collection('sales').doc(saleToDelete.id.toString()).delete();
+                } catch (error) {
+                    console.error("Error al borrar el ticket de la nube:", error);
+                }
+            }
+            
+            // Limpiar también de la memoria visual de la pantalla actual
             state.sales = state.sales.filter(s => s.orderId !== orderId);
 
             // 4. Erradicar movimientos de caja asociados a este ticket
@@ -4814,11 +4880,15 @@ function saveNewProduct() {
 
             // 5. Guardar y Notificar
             logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
-            saveToStorage();
+            saveToStorage(); // Guarda el esqueleto (caja, inventario, etc.)
             
             showToast('✅ Pedido erradicado de todas las bases de datos', 'success');
             closeModal();
-            renderOrders(document.getElementById('contentArea')); // Refresca la pantalla
+            
+            // Recargar dinámicamente la pantalla en la que estemos
+            if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
+            if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
+            if (currentView === 'reports') renderReports(document.getElementById('contentArea'));
         }
 
         // ==================== EXISTING ORDER PAYMENT LOGIC ====================
@@ -5083,179 +5153,137 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-       // ==================== TICKET HISTORY MODULE (CON CALENDARIO CORREGIDO) ====================
-       function renderTicketHistory(container) {
-            const getLocalYYYYMMDD = (dateObj) => {
-                const d = new Date(dateObj);
-                if (isNaN(d)) return "";
-                const yyyy = d.getFullYear();
-                const mm = String(d.getMonth() + 1).padStart(2, '0');
-                const dd = String(d.getDate()).padStart(2, '0');
-                return `${yyyy}-${mm}-${dd}`;
-            };
-
-            const todayLocalStr = getLocalYYYYMMDD(new Date());
-
-            if (typeof window.selectedTicketsDate === 'undefined' || !window.selectedTicketsDate) {
-                window.selectedTicketsDate = todayLocalStr; 
-            }
-
-            const targetDateStr = window.selectedTicketsDate;
-
-            const activeSales = state.sales.filter(s => {
-                if (!s.timestamp) return false;
-                const saleDateStr = getLocalYYYYMMDD(s.timestamp);
-                return saleDateStr === targetDateStr;
-            }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            container.innerHTML = `
-                <div class="animate-slideIn h-full flex flex-col">
-                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4 gap-4">
-                        <div class="flex items-center gap-3">
-                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">🧾 Historial de Tickets</h2>
-                            <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
-                                Total: ${activeSales.length}
-                            </span>
-                        </div>
-
-                        <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-theme-beige shadow-sm">
-                            <span class="text-xl">📅</span>
-                            <input type="date" id="ticketsDatePicker" value="${window.selectedTicketsDate}" 
-                                onchange="changeTicketsDate(this.value)"
-                                class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
-                            
-                            ${window.selectedTicketsDate !== todayLocalStr ? 
-                                `<button onclick="changeTicketsDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
-                            : ''}
-                        </div>
-                    </div>
-                    
-                    <div class="space-y-4 flex-1 overflow-auto scrollbar-thin pr-2 pb-4">
-                        ${activeSales.length === 0 ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay cobros registrados en esta fecha.</p>' : 
-                        activeSales.map(sale => `
-                            <div class="glass bg-white/80 border border-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
-                                <div>
-                                    <p class="font-extrabold text-theme-text text-lg">Ticket #${sale.orderId.toString().slice(-4)}</p>
-                                    <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(sale.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
-                                    <p class="text-sm font-medium mt-2 text-theme-text">${sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
-                                </div>
-                                <div class="text-left md:text-right flex flex-col justify-between items-start md:items-end">
-                                    <p class="font-extrabold text-xl text-theme-greenDark mb-3">$${sale.total.toLocaleString()}</p>
-                                    <div class="flex gap-2">
-                                        <span class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">
-                                            ${sale.paymentMethod === 'cash' ? '💵 Efectivo' : '📱 Transferencia'}
-                                        </span>
-                                        <button onclick='reprintTicket(${sale.id})' class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-theme-bg border border-theme-beige hover:bg-theme-beige transition text-theme-text">
-                                            🖨️ Ver Ticket
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        function reprintTicket(saleId) {
-            const sale = state.sales.find(s => s.id === saleId);
-            if (sale) {
-                showReceipt(sale);
-            }
-        }
-
         // ==================== VARIABLES PARA LA GRÁFICA ====================
         let reportChartMode = 'weekly'; 
         let reportSelectedMonth = new Date().getMonth();
         let reportSelectedYear = new Date().getFullYear();
         let salesChartInstance = null; // Guarda la gráfica para poder destruirla y redibujarla
 
-        // ==================== REPORTS MODULE ====================
-        function renderReports(container) {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            
-            const last7Days = [...Array(7)].map((_, i) => {
-                const d = new Date();
-                d.setDate(d.getDate() - (6 - i)); 
-                d.setHours(0, 0, 0, 0);
-                return d;
-            });
-
-            // Totales de Hoy y Semana
-            const todaySales = state.sales.filter(s => {
-                const d = new Date(s.timestamp);
-                d.setHours(0, 0, 0, 0);
-                return d.getTime() === today.getTime();
-            });
-            const weekSales = state.sales.filter(s => new Date(s.timestamp) >= last7Days[0]);
-
-            const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
-            const weekTotal = weekSales.reduce((sum, s) => sum + s.total, 0);
-
+        // ==================== REPORTS MODULE (CONECTADO A LA NUBE) ====================
+        async function renderReports(container) {
+            // 1. Mostrar pantalla de carga
             container.innerHTML = `
-                <div class="animate-slideIn">
-                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
-                        <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📈 Estadísticas y Reportes</h2>
-                        
-                        <div class="flex flex-wrap gap-2 w-full md:w-auto">
-                            <button onclick="generateReport('daily')" class="flex-1 md:flex-none btn-primary px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2">
-                                📄 Ventas Hoy
-                            </button>
-                            <button onclick="generateReport('weekly')" class="flex-1 md:flex-none bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2 transition">
-                                📅 Ventas Semana
-                            </button>
-                            <button onclick="generateInventoryReport()" class="flex-1 md:flex-none bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2 transition">
-                                📦 Inventario
-                            </button>
-                            <button onclick="generateMonthlyReport()" class="flex-1 md:flex-none bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2 transition">
-                                📊 Reporte Mensual (PDF)
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
-                            <p class="text-theme-textMuted text-sm font-bold mb-1">Ventas del Día (Hoy)</p>
-                            <p class="text-4xl font-extrabold text-green-600">$${todayTotal.toLocaleString()}</p>
-                            <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${todaySales.length} tickets procesados hoy</p>
-                        </div>
-                        <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
-                            <p class="text-theme-textMuted text-sm font-bold mb-1">Ventas de la Semana (Últimos 7 días)</p>
-                            <p class="text-4xl font-extrabold text-blue-600">$${weekTotal.toLocaleString()}</p>
-                            <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${weekSales.length} tickets en total</p>
-                        </div>
-                    </div>
-
-                    <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm mb-6">
-                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-theme-beige pb-3 gap-3">
-                            <h3 class="font-extrabold text-lg text-theme-text">📊 Tendencia de Ingresos</h3>
-                            
-                            <div class="flex items-center gap-2">
-                                <select id="chartModeSelect" onchange="changeChartMode(this.value)" class="bg-white border border-theme-beige rounded-lg px-3 py-1.5 text-sm font-bold text-theme-text outline-none focus:border-theme-green shadow-sm">
-                                    <option value="weekly" ${reportChartMode === 'weekly' ? 'selected' : ''}>Últimos 7 días</option>
-                                    <option value="monthly" ${reportChartMode === 'monthly' ? 'selected' : ''}>Por Mes</option>
-                                </select>
-                                
-                                <div id="monthNavControls" class="${reportChartMode === 'monthly' ? 'flex' : 'hidden'} items-center gap-1 bg-white border border-theme-beige rounded-lg px-2 py-1 shadow-sm">
-                                    <button onclick="navigateMonth(-1)" class="hover:bg-theme-beige px-2 py-0.5 rounded transition font-bold text-theme-text">&lt;</button>
-                                    <span id="currentMonthLabel" class="text-sm font-bold w-24 text-center text-theme-greenDark"></span>
-                                    <button onclick="navigateMonth(1)" class="hover:bg-theme-beige px-2 py-0.5 rounded transition font-bold text-theme-text">&gt;</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="w-full h-72 relative">
-                            <canvas id="salesChart"></canvas>
-                        </div>
-                    </div>
+                <div class="h-full flex flex-col items-center justify-center animate-pulse">
+                    <div class="text-5xl mb-4 drop-shadow-md">📊</div>
+                    <p class="text-theme-greenDark font-bold text-lg">Descargando estadísticas de la nube...</p>
                 </div>
             `;
 
-            // Inicializa la etiqueta del mes si está en modo mensual y dibuja la gráfica
-            if (reportChartMode === 'monthly') {
-                updateMonthLabel();
+            try {
+                // 2. Determinar rango de fechas según el selector
+                let startDate = new Date();
+                let endDate = new Date();
+                
+                if (reportChartMode === 'weekly') {
+                    startDate.setDate(startDate.getDate() - 6);
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate.setHours(23, 59, 59, 999);
+                } else {
+                    startDate = new Date(reportSelectedYear, reportSelectedMonth, 1);
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate = new Date(reportSelectedYear, reportSelectedMonth + 1, 0, 23, 59, 59);
+                }
+
+                // 3. Descargar ventas del rango
+                const snapshot = await db.collection('pizzaManager').doc(currentBranch)
+                    .collection('sales')
+                    .where('timestamp', '>=', startDate.toISOString())
+                    .where('timestamp', '<=', endDate.toISOString())
+                    .get();
+
+                state.reportSales = [];
+                snapshot.forEach(doc => state.reportSales.push(doc.data()));
+
+                // 4. Cálculos para las tarjetas
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                const last7Days = [...Array(7)].map((_, i) => {
+                    const d = new Date();
+                    d.setDate(d.getDate() - (6 - i)); 
+                    d.setHours(0, 0, 0, 0);
+                    return d;
+                });
+
+                const todaySales = state.reportSales.filter(s => {
+                    const d = new Date(s.timestamp);
+                    d.setHours(0, 0, 0, 0);
+                    return d.getTime() === today.getTime();
+                });
+                
+                const weekSales = state.reportSales.filter(s => new Date(s.timestamp) >= last7Days[0]);
+
+                const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
+                const weekTotal = weekSales.reduce((sum, s) => sum + s.total, 0);
+
+                // 5. Dibujar Interfaz
+                container.innerHTML = `
+                    <div class="animate-slideIn">
+                        <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
+                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📈 Estadísticas y Reportes</h2>
+                            
+                            <div class="flex flex-wrap gap-2 w-full md:w-auto">
+                                <button onclick="generateReport('daily')" class="flex-1 md:flex-none btn-primary px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2">
+                                    📄 Ventas Hoy
+                                </button>
+                                <button onclick="generateReport('weekly')" class="flex-1 md:flex-none bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2 transition">
+                                    📅 Ventas Semana
+                                </button>
+                                <button onclick="generateInventoryReport()" class="flex-1 md:flex-none bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2 transition">
+                                    📦 Inventario
+                                </button>
+                                <button onclick="generateMonthlyReport()" class="flex-1 md:flex-none bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center justify-center gap-2 transition">
+                                    📊 Reporte Mensual (PDF)
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
+                                <p class="text-theme-textMuted text-sm font-bold mb-1">Ventas del Día (Hoy)</p>
+                                <p class="text-4xl font-extrabold text-green-600">$${todayTotal.toLocaleString()}</p>
+                                <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${todaySales.length} tickets procesados hoy</p>
+                            </div>
+                            <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
+                                <p class="text-theme-textMuted text-sm font-bold mb-1">Ventas de la Semana</p>
+                                <p class="text-4xl font-extrabold text-blue-600">$${weekTotal.toLocaleString()}</p>
+                                <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${weekSales.length} tickets en total</p>
+                            </div>
+                        </div>
+
+                        <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm mb-6">
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-theme-beige pb-3 gap-3">
+                                <h3 class="font-extrabold text-lg text-theme-text">📊 Tendencia de Ingresos</h3>
+                                
+                                <div class="flex items-center gap-2">
+                                    <select id="chartModeSelect" onchange="changeChartMode(this.value)" class="bg-white border border-theme-beige rounded-lg px-3 py-1.5 text-sm font-bold text-theme-text outline-none focus:border-theme-green shadow-sm">
+                                        <option value="weekly" ${reportChartMode === 'weekly' ? 'selected' : ''}>Últimos 7 días</option>
+                                        <option value="monthly" ${reportChartMode === 'monthly' ? 'selected' : ''}>Por Mes</option>
+                                    </select>
+                                    
+                                    <div id="monthNavControls" class="${reportChartMode === 'monthly' ? 'flex' : 'hidden'} items-center gap-1 bg-white border border-theme-beige rounded-lg px-2 py-1 shadow-sm">
+                                        <button onclick="navigateMonth(-1)" class="hover:bg-theme-beige px-2 py-0.5 rounded transition font-bold text-theme-text">&lt;</button>
+                                        <span id="currentMonthLabel" class="text-sm font-bold w-24 text-center text-theme-greenDark"></span>
+                                        <button onclick="navigateMonth(1)" class="hover:bg-theme-beige px-2 py-0.5 rounded transition font-bold text-theme-text">&gt;</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="w-full h-72 relative">
+                                <canvas id="salesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                if (reportChartMode === 'monthly') {
+                    updateMonthLabel();
+                }
+                setTimeout(() => { updateSalesChart(); }, 50);
+
+            } catch (error) {
+                console.error("Error cargando reportes:", error);
+                container.innerHTML = `<p class="text-red-500 text-center py-12 font-bold">Error de conexión al cargar reportes.</p>`;
             }
-            setTimeout(() => { updateSalesChart(); }, 50);
         }
 
         // --- FUNCIONES DINÁMICAS PARA LA GRÁFICA ---
@@ -5269,16 +5297,8 @@ function payExistingOrder(orderId, method) {
 
         function changeChartMode(mode) {
             reportChartMode = mode;
-            const navControls = document.getElementById('monthNavControls');
-            if (mode === 'monthly') {
-                navControls.classList.remove('hidden');
-                navControls.classList.add('flex');
-                updateMonthLabel();
-            } else {
-                navControls.classList.add('hidden');
-                navControls.classList.remove('flex');
-            }
-            updateSalesChart();
+            // 💡 MAGIA: Ahora volverá a descargar los datos exactos del nuevo rango
+            renderReports(document.getElementById('contentArea')); 
         }
 
         function navigateMonth(direction) {
@@ -5290,8 +5310,8 @@ function payExistingOrder(orderId, method) {
                 reportSelectedMonth = 0;
                 reportSelectedYear++;
             }
-            updateMonthLabel();
-            updateSalesChart();
+            // 💡 Vuelve a descargar el nuevo mes
+            renderReports(document.getElementById('contentArea'));
         }
 
         function updateSalesChart() {
@@ -5302,7 +5322,6 @@ function payExistingOrder(orderId, method) {
             let chartData = [];
 
             if (reportChartMode === 'weekly') {
-                // Cálculo de los últimos 7 días
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 const last7Days = [...Array(7)].map((_, i) => {
@@ -5313,7 +5332,7 @@ function payExistingOrder(orderId, method) {
                 
                 labels = last7Days.map(d => d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric' }));
                 chartData = last7Days.map(date => {
-                    return state.sales
+                    return state.reportSales
                         .filter(s => {
                             const sd = new Date(s.timestamp);
                             return sd.getFullYear() === date.getFullYear() && sd.getMonth() === date.getMonth() && sd.getDate() === date.getDate();
@@ -5321,12 +5340,11 @@ function payExistingOrder(orderId, method) {
                         .reduce((sum, s) => sum + s.total, 0);
                 });
             } else {
-                // Cálculo Mensual (Día por día del mes seleccionado)
                 const daysInMonth = new Date(reportSelectedYear, reportSelectedMonth + 1, 0).getDate();
                 for (let i = 1; i <= daysInMonth; i++) {
-                    labels.push(i.toString()); // Solo ponemos el número del día (1, 2, 3...)
+                    labels.push(i.toString()); 
                     
-                    const dailyTotal = state.sales
+                    const dailyTotal = state.reportSales
                         .filter(s => {
                             const sd = new Date(s.timestamp);
                             return sd.getFullYear() === reportSelectedYear && sd.getMonth() === reportSelectedMonth && sd.getDate() === i;
@@ -5336,7 +5354,6 @@ function payExistingOrder(orderId, method) {
                 }
             }
 
-            // Destruir gráfica anterior para evitar sobreposición (Glitch de Chart.js)
             if (salesChartInstance) {
                 salesChartInstance.destroy();
             }
@@ -5354,7 +5371,7 @@ function payExistingOrder(orderId, method) {
                         fill: true,
                         tension: 0.3,
                         pointBackgroundColor: '#4A504A',
-                        pointRadius: reportChartMode === 'monthly' ? 2 : 4 // Puntos más pequeños si es mensual
+                        pointRadius: reportChartMode === 'monthly' ? 2 : 4 
                     }]
                 },
                 options: {
@@ -5368,7 +5385,6 @@ function payExistingOrder(orderId, method) {
                 }
             });
         }
-
         // ==================== GENERADOR DE REPORTES DIARIO/SEMANAL ====================
         function generateReport(type) {
             const today = new Date();
@@ -6642,55 +6658,9 @@ function payExistingOrder(orderId, method) {
             renderOrders(document.getElementById('contentArea'));
         }
         // ==================== VIAJE EN EL TIEMPO (HISTORIAL EN LA NUBE) ====================
-        async function changeTicketsDate(dateStr) {
+        function changeTicketsDate(dateStr) {
             window.selectedTicketsDate = dateStr;
-            const container = document.getElementById('contentArea');
-            
-            // Lógica de fecha local
-            const getLocalYYYYMMDD = (dateObj) => {
-                const d = new Date(dateObj);
-                if (isNaN(d)) return "";
-                const yyyy = d.getFullYear();
-                const mm = String(d.getMonth() + 1).padStart(2, '0');
-                const dd = String(d.getDate()).padStart(2, '0');
-                return `${yyyy}-${mm}-${dd}`;
-            };
-            const todayLocalStr = getLocalYYYYMMDD(new Date());
-
-            // Si pide ver el día de HOY, usamos la memoria ultrarrápida
-            if(dateStr === todayLocalStr) {
-                renderTicketHistory(container);
-                return;
-            }
-
-            // Si pide el pasado, ponemos pantalla de carga y vamos a Firebase
-            container.innerHTML = `
-                <div class="h-full flex flex-col items-center justify-center animate-pulse">
-                    <div class="text-5xl mb-4 drop-shadow-md">☁️</div>
-                    <p class="text-theme-greenDark font-bold text-lg">Buscando tickets del ${dateStr} en el archivo infinito...</p>
-                </div>
-            `;
-            
-            const start = new Date(dateStr + 'T00:00:00');
-            const end = new Date(dateStr + 'T23:59:59');
-            
-            try {
-                // Buscamos solo en esa fecha
-                const snapshot = await db.collection('pizzaManager').doc(currentBranch)
-                    .collection('sales')
-                    .where('timestamp', '>=', start.toISOString())
-                    .where('timestamp', '<=', end.toISOString())
-                    .get();
-                    
-                // Reemplazamos temporalmente la memoria visual con los datos del pasado
-                state.sales = [];
-                snapshot.forEach(doc => state.sales.push(doc.data()));
-                
-                renderTicketHistory(container);
-            } catch(e) {
-                console.error("Error al descargar historial:", e);
-                showToast('Error al contactar el servidor', 'error');
-            }
+            renderTicketHistory(document.getElementById('contentArea'));
         }
         // ==================== GESTOR DE CATEGORÍAS DE INVENTARIO (CON AUTO-MIGRACIÓN) ====================
         function manageInventoryCategoriesModal() {
@@ -7140,6 +7110,98 @@ function payExistingOrder(orderId, method) {
                 </div>  
             `;
             modal.classList.remove('hidden');
+        }
+
+        // ==================== HECHIZO DE RESCATE DE TICKETS ====================
+        async function migrarVentasAntiguas() {
+            showToast('Buscando tickets en el sistema antiguo...', 'info');
+            try {
+                const doc = await db.collection('pizzaManager').doc(currentBranch).get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    if (data.sales && data.sales.length > 0) {
+                        showToast(`Migrando ${data.sales.length} tickets a la nube...`, 'info');
+                        let count = 0;
+                        for (let sale of data.sales) {
+                            await db.collection('pizzaManager').doc(currentBranch)
+                                .collection('sales').doc(sale.id.toString()).set(sale);
+                            count++;
+                        }
+                        showToast(`✅ ¡Éxito! Se movieron ${count} tickets al nuevo archivo.`, 'success');
+                    } else {
+                        showToast('No se encontraron tickets atrapados en el sistema viejo.', 'warning');
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                showToast('Error al migrar', 'error');
+            }
+        }
+
+        // ==================== ELIMINACIÓN FORZADA DE TICKETS FANTASMA ====================
+        function confirmForceDeleteTicket(saleId, orderId) {
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-red-400 text-center">
+                    <div class="text-5xl mb-4 drop-shadow-md">👻</div>
+                    <h3 class="text-xl font-extrabold mb-2 text-red-600">¿Eliminar Ticket Finalizado?</h3>
+                    <p class="text-sm text-theme-text font-medium mb-6">Estás a punto de borrar el ticket #${orderId.toString().slice(-4)} directamente de la base de datos en la nube. Esto ajustará tus estadísticas de inmediato.</p>
+                    
+                    <div class="mb-6 relative">
+                        <input type="password" id="adminForceDeletePassword" class="w-full px-4 py-3 bg-white border-2 border-red-200 rounded-xl text-center text-2xl tracking-widest focus:outline-none focus:border-red-500 font-bold" placeholder="******">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="forceDeleteTicket(${saleId}, ${orderId})" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl shadow-md transition">Borrar Ticket</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+            setTimeout(() => document.getElementById('adminForceDeletePassword').focus(), 100);
+        }
+
+        async function forceDeleteTicket(saleId, orderId) {
+            const pwdInput = document.getElementById('adminForceDeletePassword').value;
+            // 🔒 Misma contraseña maestra que definiste antes
+            if (pwdInput !== '726188') {
+                showToast('Contraseña incorrecta', 'error');
+                const inputEl = document.getElementById('adminForceDeletePassword');
+                inputEl.classList.add('animate-shake', 'border-red-500');
+                setTimeout(() => inputEl.classList.remove('animate-shake', 'border-red-500'), 500);
+                return;
+            }
+
+            try {
+                showToast('Eliminando de la nube...', 'info');
+
+                // 1. Borrar físicamente de Firebase (El Archivero Infinito)
+                await db.collection('pizzaManager').doc(currentBranch)
+                    .collection('sales').doc(saleId.toString()).delete();
+
+                // 2. Limpiar memoria local para que la gráfica se actualice
+                state.sales = state.sales.filter(s => s.id !== saleId);
+                if (state.reportSales) {
+                    state.reportSales = state.reportSales.filter(s => s.id !== saleId);
+                }
+
+                // 3. Borrar el movimiento de caja asociado (para que no te sobre dinero en el corte)
+                if (state.cashRegister && state.cashRegister.movements) {
+                    state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
+                    saveToStorage(); 
+                }
+
+                logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado desde el historial por Admin`);
+                
+                showToast('✅ Ticket eliminado de la nube y estadísticas', 'success');
+                closeModal();
+                
+                // Recargar pantalla
+                renderTicketHistory(document.getElementById('contentArea'));
+
+            } catch (error) {
+                console.error("Error al borrar ticket fantasma:", error);
+                showToast('Error de conexión al borrar', 'error');
+            }
         }
 
 
