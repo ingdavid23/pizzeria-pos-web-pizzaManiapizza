@@ -7162,7 +7162,7 @@ function payExistingOrder(orderId, method) {
 
         async function forceDeleteTicket(saleId, orderId) {
             const pwdInput = document.getElementById('adminForceDeletePassword').value;
-            // 🔒 Misma contraseña maestra que definiste antes
+            // 🔒 Misma contraseña maestra
             if (pwdInput !== '726188') {
                 showToast('Contraseña incorrecta', 'error');
                 const inputEl = document.getElementById('adminForceDeletePassword');
@@ -7184,15 +7184,20 @@ function payExistingOrder(orderId, method) {
                     state.reportSales = state.reportSales.filter(s => s.id !== saleId);
                 }
 
-                // 3. Borrar el movimiento de caja asociado (para que no te sobre dinero en el corte)
+                // 3. Borrar el movimiento de caja asociado
                 if (state.cashRegister && state.cashRegister.movements) {
                     state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
-                    saveToStorage(); 
                 }
 
-                logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado desde el historial por Admin`);
+                // 💡 NUEVO: 4. Erradicar el pedido de la Cocina y de Pedidos
+                state.orders = state.orders.filter(o => o.id !== orderId);
+
+                // Guardar los cambios (caja y cocina) en Firebase
+                saveToStorage(); 
+
+                logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado por Admin`);
                 
-                showToast('✅ Ticket eliminado de la nube y estadísticas', 'success');
+                showToast('✅ Ticket y Comanda eliminados de la nube', 'success');
                 closeModal();
                 
                 // Recargar pantalla
