@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="es" class="h-full">
 
@@ -1104,8 +1103,8 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
             }
         }
 
-        // ==================== DASHBOARD ====================
-        function renderDashboard(container) {
+       // ==================== DASHBOARD ====================
+       function renderDashboard(container) {
             const today = new Date().toDateString();
             const todaySales = state.sales.filter(s => new Date(s.timestamp).toDateString() === today);
             const totalToday = todaySales.reduce((sum, s) => sum + s.total, 0);
@@ -1164,15 +1163,19 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                         <div class="glass rounded-2xl p-5 bg-white/60">
                             <h3 class="font-bold mb-4 flex items-center gap-2 text-theme-greenDark">🔥 Pedidos Activos</h3>
                             <div class="space-y-3 max-h-80 overflow-auto scrollbar-thin pr-2">
-                                ${state.orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').slice(0, 10).map(o => `
+                                ${state.orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').slice(0, 10).map(o => {
+                                    // 💡 SOLUCIÓN:
+                                    const tableNameDisplay = o.type === 'table' ? (o.tableName || `Mesa ${o.tableId}`) : 'Mostrador';
+                                    return `
                                     <div class="flex items-center justify-between p-3 rounded-xl bg-white border border-white/50 shadow-sm">
                                         <div>
-                                            <p class="font-bold text-theme-text">#${o.id.toString().slice(-4)} - ${o.type === 'table' ? `Mesa ${o.tableId}` : 'Mostrador'}</p>
+                                            <p class="font-bold text-theme-text">#${o.id.toString().slice(-4)} - ${tableNameDisplay}</p>
                                             <p class="text-xs text-theme-textMuted font-medium">${o.items.length} productos • <span class="text-theme-greenDark font-bold">$${o.total}</span></p>
                                         </div>
                                         <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(o.status)}">${getStatusLabel(o.status)}</span>
                                     </div>
-                                `).join('') || '<p class="text-theme-textMuted text-center py-4">Sin pedidos activos</p>'}
+                                    `;
+                                }).join('') || '<p class="text-theme-textMuted text-center py-4">Sin pedidos activos</p>'}
                             </div>
                         </div>
 
@@ -2201,11 +2204,11 @@ function processPayment(method) {
             `;
         }
 
+        // Reemplazar la que está dentro de la sección Cocina
         function renderOrderCard(order, isHistory) {
             const endTime = order.statusUpdatedAt ? new Date(order.statusUpdatedAt) : new Date();
             const waitTime = Math.floor((endTime - new Date(order.createdAt)) / 60000);
 
-            // 💡 MAGIA: Filtramos los productos para que la cocina NO vea las bebidas
             const kitchenItems = order.items.filter(item => {
                 const prod = state.products.find(p => p.id === item.productId);
                 if (!prod) return true;
@@ -2213,13 +2216,16 @@ function processPayment(method) {
                 return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
             });
 
+            // 💡 SOLUCIÓN
+            const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+
             return `
                 <div class="bg-white rounded-2xl p-4 flex flex-col border border-white shadow-sm ${isHistory ? 'opacity-80 border-l-4 border-l-green-400 bg-theme-bg' : 'card-hover'} ${!isHistory && waitTime > 15 ? 'border-2 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : ''} ${!isHistory && waitTime > 10 && waitTime <= 15 ? 'border-2 border-yellow-400' : ''}">
                     <div class="flex items-center justify-between mb-3">
                         <div>
                             <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
                             <span class="ml-2 px-2 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
-                                ${order.type === 'table' ? `Mesa ${order.tableId}` : 'Mostrador'}
+                                ${tableNameDisplay}
                             </span>
                         </div>
                         <span class="text-xs ${!isHistory && waitTime > 15 ? 'text-red-600 animate-pulse-custom font-extrabold' : !isHistory && waitTime > 10 ? 'text-yellow-600 font-bold' : 'text-theme-textMuted font-medium'}">
@@ -2828,8 +2834,8 @@ function processPayment(method) {
             }
         }
         
+        // ==================== MY ORDERS MODULE ====================
         function renderMyOrders(container) {
-            // Filtramos por usuario y que NO estén marcados como ocultos
             const myOrders = state.orders.filter(o => o.createdBy === currentUser.id && !o.hiddenFromWaiter)
                 .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
@@ -2843,10 +2849,13 @@ function processPayment(method) {
                     </div>
                     
                     <div class="space-y-4">
-                        ${myOrders.slice(0, 20).map(order => `
+                        ${myOrders.slice(0, 20).map(order => {
+                            // 💡 SOLUCIÓN:
+                            const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+                            return `
                             <div class="bg-white/80 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between shadow-sm border border-white">
                                 <div class="mb-3 md:mb-0">
-                                    <p class="font-extrabold text-theme-text text-lg">#${order.id.toString().slice(-4)} - <span class="text-theme-greenDark">${order.type === 'table' ? `Mesa ${order.tableId}` : 'Mostrador'}</span></p>
+                                    <p class="font-extrabold text-theme-text text-lg">#${order.id.toString().slice(-4)} - <span class="text-theme-greenDark">${tableNameDisplay}</span></p>
                                     <p class="text-sm text-theme-textMuted font-medium mt-1">${order.items.map(i => `<strong>${i.quantity}x</strong> ${i.name} ${i.note ? `<span class="text-red-400 italic text-xs">(${i.note})</span>` : ''}`).join(', ')}</p>
                                     <p class="text-xs text-theme-textMuted mt-1">🕒 ${new Date(order.createdAt).toLocaleString('es-MX')}</p>
                                 </div>
@@ -2855,7 +2864,8 @@ function processPayment(method) {
                                     <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
                                 </div>
                             </div>
-                        `).join('') || '<p class="text-theme-textMuted text-center py-8 font-medium">No tienes pedidos activos en tu lista</p>'}
+                            `;
+                        }).join('') || '<p class="text-theme-textMuted text-center py-8 font-medium">No tienes pedidos activos en tu lista</p>'}
                     </div>
                 </div>
             `;
@@ -4730,9 +4740,8 @@ function saveNewProduct() {
 
 
 
-      // ==================== ORDERS MODULE (CON CALENDARIO CORREGIDO) ====================
-      function renderOrders(container) {
-            // 🛡️ MAGIA: Convertir fechas a la zona horaria local exacta para que coincida con el calendario
+     // ==================== ORDERS MODULE ====================
+     function renderOrders(container) {
             const getLocalYYYYMMDD = (dateObj) => {
                 const d = new Date(dateObj);
                 if (isNaN(d)) return "";
@@ -4744,14 +4753,12 @@ function saveNewProduct() {
 
             const todayLocalStr = getLocalYYYYMMDD(new Date());
 
-            // Si no hay fecha elegida, mostrar Hoy
             if (typeof window.selectedOrdersDate === 'undefined' || !window.selectedOrdersDate) {
                 window.selectedOrdersDate = todayLocalStr; 
             }
 
             const targetDateStr = window.selectedOrdersDate;
 
-            // Filtramos comparando el día, mes y año exactos de la localidad
             const activeOrders = state.orders.filter(o => {
                 if (!o.createdAt) return false;
                 const orderDateStr = getLocalYYYYMMDD(o.createdAt);
@@ -4783,13 +4790,16 @@ function saveNewProduct() {
                     </div>
                     
                     <div class="space-y-4">
-                        ${activeOrders.map(order => `
+                        ${activeOrders.map(order => {
+                            // 💡 SOLUCIÓN:
+                            const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+                            return `
                             <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
                                 <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
                                     <div class="flex items-center gap-3 flex-wrap">
                                         <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
                                         <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
-                                            ${order.type === 'table' ? `Mesa ${order.tableId}` : 'Mostrador'}
+                                            ${tableNameDisplay}
                                         </span>
                                         <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
                                         
@@ -4827,12 +4837,12 @@ function saveNewProduct() {
                                     </button>
                                 </div>
                             </div>
-                        `).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>'}
+                            `;
+                        }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>'}
                     </div>
                 </div>
             `;
         }
-
         // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
         function showDeleteOrderAuthModal(orderId) {
             const modal = document.getElementById('modalContainer');
@@ -6947,12 +6957,11 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-       // ==================== TICKET DE COCINA (COMANDERO) ====================
-       function printKitchenTicket(orderId, tableId = null) {
+      // ==================== TICKET DE COCINA (COMANDERO) ====================
+      function printKitchenTicket(orderId, tableId = null) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            // 💡 MAGIA: Filtramos para imprimir
             const kitchenItems = order.items.filter(item => {
                 const prod = state.products.find(p => p.id === item.productId);
                 if (!prod) return true;
@@ -6960,17 +6969,20 @@ function payExistingOrder(orderId, method) {
                 return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
             });
 
+            // 💡 SOLUCIÓN: Buscamos el nombre real de la mesa
+            const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
+
             const modal = document.getElementById('modalContainer');
             
             modal.innerHTML = `
-                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative">
+                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative z-[99999]">
                     
                     <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
                         
                         <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
                             <h3 class="text-3xl font-black uppercase tracking-widest mb-2 print:mt-0">COCINA</h3>
                             <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
-                                ${order.type === 'table' ? `MESA ${order.tableId}` : 'MOSTRADOR'}
+                                ${tableNameDisplay}
                             </p>
                             <p class="text-[12px] mt-2 font-bold">${new Date(order.createdAt).toLocaleString('es-MX')}</p>
                             <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
@@ -7021,13 +7033,15 @@ function payExistingOrder(orderId, method) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            // 💡 MAGIA: Filtramos para imprimir
             const kitchenItems = order.items.filter(item => {
                 const prod = state.products.find(p => p.id === item.productId);
                 if (!prod) return true;
                 const cat = prod.category ? prod.category.toLowerCase() : '';
                 return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
             });
+
+            // 💡 SOLUCIÓN
+            const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
 
             const modal = document.getElementById('modalContainer');
             
@@ -7039,7 +7053,7 @@ function payExistingOrder(orderId, method) {
                         <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
                             <h3 class="text-3xl font-black uppercase tracking-widest mb-2 print:mt-0">COCINA</h3>
                             <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
-                                ${order.type === 'table' ? `MESA ${order.tableId}` : 'MOSTRADOR'}
+                                ${tableNameDisplay}
                             </p>
                             <p class="text-[12px] mt-2 font-bold">${new Date(order.createdAt).toLocaleString('es-MX')}</p>
                             <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
@@ -7082,10 +7096,12 @@ function payExistingOrder(orderId, method) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            // 💡 MAGIA: Detecta si lo abrió el mesero o el cajero para saber a dónde regresar
             const isWaiter = currentView === 'waiter';
             const returnAction = isWaiter ? `closeModal(); setTimeout(() => selectTable(${order.tableId}), 150)` : `closeModal()`;
             const returnText = isWaiter ? '⬅️ Regresar a la Mesa' : 'Cerrar Ventana';
+
+            // 💡 SOLUCIÓN
+            const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
 
             const modal = document.getElementById('modalContainer');
             
@@ -7103,7 +7119,7 @@ function payExistingOrder(orderId, method) {
                             <p class="text-[10px] uppercase font-bold print:leading-tight">Comitán de Domínguez, Chis.</p>
                             <p class="text-[10px] mt-1 font-bold">${new Date().toLocaleString('es-MX')}</p>
                             <p class="text-[14px] mt-2 font-black border-2 border-black px-2 py-1 inline-block">
-                                ${order.type === 'table' ? `MESA ${order.tableId}` : 'MOSTRADOR'}
+                                ${tableNameDisplay}
                             </p>
                         </div>
 
