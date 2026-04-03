@@ -2204,7 +2204,6 @@ function processPayment(method) {
             `;
         }
 
-        // Reemplazar la que está dentro de la sección Cocina
         function renderOrderCard(order, isHistory) {
             const endTime = order.statusUpdatedAt ? new Date(order.statusUpdatedAt) : new Date();
             const waitTime = Math.floor((endTime - new Date(order.createdAt)) / 60000);
@@ -2216,29 +2215,45 @@ function processPayment(method) {
                 return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
             });
 
-            // 💡 SOLUCIÓN
+            // 💡 CEREBRO DE AGREGADOS: Detectamos si hay cosas nuevas a mitad de cuenta
+            const orderAlreadyPrinted = order.items.some(i => (i.printedQty || 0) > 0);
+            const hasNewAgregados = !isHistory && orderAlreadyPrinted && order.items.some(i => (i.quantity - (i.printedQty || 0)) > 0);
+
             const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
 
             return `
-                <div class="bg-white rounded-2xl p-4 flex flex-col border border-white shadow-sm ${isHistory ? 'opacity-80 border-l-4 border-l-green-400 bg-theme-bg' : 'card-hover'} ${!isHistory && waitTime > 15 ? 'border-2 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : ''} ${!isHistory && waitTime > 10 && waitTime <= 15 ? 'border-2 border-yellow-400' : ''}">
+                <div class="bg-white rounded-2xl p-4 flex flex-col border border-white shadow-sm ${isHistory ? 'opacity-80 border-l-4 border-l-green-400 bg-theme-bg' : 'card-hover'} ${!isHistory && waitTime > 15 && !hasNewAgregados ? 'border-2 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : ''} ${!isHistory && waitTime > 10 && waitTime <= 15 && !hasNewAgregados ? 'border-2 border-yellow-400' : ''} ${hasNewAgregados ? 'border-2 border-orange-400 shadow-[0_0_15px_rgba(243,167,13,0.3)]' : ''}">
                     <div class="flex items-center justify-between mb-3">
-                        <div>
+                        <div class="flex items-center flex-wrap gap-1">
                             <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
-                            <span class="ml-2 px-2 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
+                            <span class="ml-1 px-2 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
                                 ${tableNameDisplay}
                             </span>
+                            ${hasNewAgregados ? `<span class="ml-1 px-2 py-1 rounded-md text-[10px] font-black bg-orange-100 text-orange-700 border border-orange-300 animate-pulse-custom tracking-wider">(NUEVO)</span>` : ''}
                         </div>
                         <span class="text-xs ${!isHistory && waitTime > 15 ? 'text-red-600 animate-pulse-custom font-extrabold' : !isHistory && waitTime > 10 ? 'text-yellow-600 font-bold' : 'text-theme-textMuted font-medium'}">
                             ⏱️ ${waitTime} min
                         </span>
                     </div>
                     <div class="space-y-2 mb-4 flex-1">
-                        ${kitchenItems.length > 0 ? kitchenItems.map(item => `
-                            <div class="flex flex-col text-sm p-2 rounded-lg bg-theme-bg border border-theme-beige text-theme-text font-medium">
-                                <div><strong class="text-theme-greenDark mr-1">${item.quantity}x</strong> ${item.name}</div>
+                        ${kitchenItems.length > 0 ? kitchenItems.map(item => {
+                            // 💡 MAGIA VISUAL: Resaltar solo el producto específico que es nuevo
+                            const unprintedQty = item.quantity - (item.printedQty || 0);
+                            const isThisItemNew = hasNewAgregados && unprintedQty > 0;
+                            
+                            return `
+                            <div class="flex flex-col text-sm p-2 rounded-lg ${isThisItemNew ? 'bg-orange-50 border border-orange-300' : 'bg-theme-bg border border-theme-beige'} text-theme-text font-medium transition-colors">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <strong class="${isThisItemNew ? 'text-orange-700' : 'text-theme-greenDark'} mr-1">${item.quantity}x</strong> 
+                                        <span class="${isThisItemNew ? 'text-orange-900 font-bold' : ''}">${item.name}</span>
+                                    </div>
+                                    ${isThisItemNew ? `<span class="text-[10px] font-black text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded shadow-sm">+${unprintedQty} Nuevo</span>` : ''}
+                                </div>
                                 ${item.note ? `<div class="text-xs text-red-600 font-bold mt-1 bg-red-50 p-1 rounded border border-red-100 flex gap-1"><span>⚠️</span> <span>${item.note}</span></div>` : ''}
                             </div>
-                        `).join('') : '<p class="text-xs text-blue-600 font-bold text-center py-3 bg-blue-50 rounded-lg border border-blue-200">🥤 Solo bebidas (Barra)</p>'}
+                            `;
+                        }).join('') : '<p class="text-xs text-blue-600 font-bold text-center py-3 bg-blue-50 rounded-lg border border-blue-200">🥤 Solo bebidas (Barra)</p>'}
                     </div>
                     <div class="flex items-center justify-between mt-auto border-t border-theme-beige pt-3">
                         
@@ -2246,7 +2261,9 @@ function processPayment(method) {
                             <span class="px-3 py-1 rounded-full text-xs font-bold ${getStatusClass(order.status)}">
                                 ${getStatusLabel(order.status)}
                             </span>
-                            <button onclick="printKitchenTicket(${order.id})" class="p-1.5 bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-800 rounded-lg transition shadow-sm" title="Imprimir Comanda">🖨️</button>
+                            <button onclick="printKitchenTicket(${order.id})" class="p-1.5 ${hasNewAgregados ? 'bg-orange-500 hover:bg-orange-600 text-white animate-pulse-custom' : 'bg-gray-100 hover:bg-gray-200 text-gray-800'} border ${hasNewAgregados ? 'border-orange-600' : 'border-gray-300'} rounded-lg transition shadow-sm flex items-center justify-center" title="Imprimir Comanda">
+                                🖨️
+                            </button>
                         </div>
                         
                         ${!isHistory ? `
@@ -6957,19 +6974,50 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-      // ==================== TICKET DE COCINA (COMANDERO) ====================
-      function printKitchenTicket(orderId, tableId = null) {
+     // ==================== TICKET DE COCINA INTELIGENTE (COMANDERO) ====================
+     function printKitchenTicket(orderId, tableId = null) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            const kitchenItems = order.items.filter(item => {
+            let isReprint = false;
+            let itemsToPrint = [];
+
+            // 1. Buscamos qué artículos son NUEVOS (su cantidad es mayor a la ya impresa)
+            order.items.forEach(item => {
                 const prod = state.products.find(p => p.id === item.productId);
-                if (!prod) return true;
+                if (!prod) return;
                 const cat = prod.category ? prod.category.toLowerCase() : '';
-                return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
+                
+                if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
+                    // Calculamos la diferencia entre lo que pidieron y lo que ya se imprimió antes
+                    const unprintedQty = item.quantity - (item.printedQty || 0);
+                    if (unprintedQty > 0) {
+                        itemsToPrint.push({ ...item, quantity: unprintedQty }); // Solo agregamos los nuevos
+                    }
+                }
             });
 
-            // 💡 SOLUCIÓN: Buscamos el nombre real de la mesa
+            // 2. Si no hay nada nuevo, significa que es una REIMPRESIÓN. Mostramos todo.
+            if (itemsToPrint.length === 0) {
+                isReprint = true;
+                order.items.forEach(item => {
+                    const prod = state.products.find(p => p.id === item.productId);
+                    if (!prod) return;
+                    const cat = prod.category ? prod.category.toLowerCase() : '';
+                    if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
+                        itemsToPrint.push(item);
+                    }
+                });
+            }
+
+            // 3. Título dinámico para avisarle al Chef
+            let headerTitle = "COCINA";
+            if (isReprint) {
+                headerTitle = "REIMPRESIÓN";
+            } else if (order.items.some(i => (i.printedQty || 0) > 0)) {
+                headerTitle = "NUEVO AGREGADO";
+            }
+
             const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
 
             const modal = document.getElementById('modalContainer');
@@ -6980,11 +7028,11 @@ function payExistingOrder(orderId, method) {
                     <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
                         
                         <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
-                            <h3 class="text-3xl font-black uppercase tracking-widest mb-2 print:mt-0">COCINA</h3>
+                            <h3 class="text-2xl font-black uppercase tracking-widest mb-2 print:mt-0">${headerTitle}</h3>
                             <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
                                 ${tableNameDisplay}
                             </p>
-                            <p class="text-[12px] mt-2 font-bold">${new Date(order.createdAt).toLocaleString('es-MX')}</p>
+                            <p class="text-[12px] mt-2 font-bold">${new Date().toLocaleString('es-MX')}</p>
                             <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
                         </div>
 
@@ -6992,7 +7040,7 @@ function payExistingOrder(orderId, method) {
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
-                            ${kitchenItems.length > 0 ? kitchenItems.map(item => `
+                            ${itemsToPrint.length > 0 ? itemsToPrint.map(item => `
                                 <div class="flex justify-start items-start mb-2 font-bold text-black border-b border-gray-300 pb-2">
                                     <span class="w-8 font-black text-xl">${item.quantity}x</span>
                                     <span class="flex-1 text-base leading-tight">
@@ -7009,7 +7057,7 @@ function payExistingOrder(orderId, method) {
                     </div>
                     
                     <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
-                        <button type="button" onclick="window.print()" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                        <button type="button" onclick="executeKitchenPrint(${order.id})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
                             🖨️ Imprimir Comanda
                         </button>
                         
@@ -7028,19 +7076,45 @@ function payExistingOrder(orderId, method) {
             modal.classList.remove('hidden');
         }
 
-        // ==================== COMANDA DE COCINA (CON RETORNO AL POS) ====================
+        // ==================== COMANDA DE COCINA (VERSIÓN PUNTO DE VENTA) ====================
         function printKitchenTicketFromPOS(orderId, saleId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            const kitchenItems = order.items.filter(item => {
+            let isReprint = false;
+            let itemsToPrint = [];
+
+            order.items.forEach(item => {
                 const prod = state.products.find(p => p.id === item.productId);
-                if (!prod) return true;
+                if (!prod) return;
                 const cat = prod.category ? prod.category.toLowerCase() : '';
-                return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
+                if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
+                    const unprintedQty = item.quantity - (item.printedQty || 0);
+                    if (unprintedQty > 0) {
+                        itemsToPrint.push({ ...item, quantity: unprintedQty });
+                    }
+                }
             });
 
-            // 💡 SOLUCIÓN
+            if (itemsToPrint.length === 0) {
+                isReprint = true;
+                order.items.forEach(item => {
+                    const prod = state.products.find(p => p.id === item.productId);
+                    if (!prod) return;
+                    const cat = prod.category ? prod.category.toLowerCase() : '';
+                    if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
+                        itemsToPrint.push(item);
+                    }
+                });
+            }
+
+            let headerTitle = "COCINA";
+            if (isReprint) {
+                headerTitle = "REIMPRESIÓN";
+            } else if (order.items.some(i => (i.printedQty || 0) > 0)) {
+                headerTitle = "NUEVO AGREGADO";
+            }
+
             const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
 
             const modal = document.getElementById('modalContainer');
@@ -7051,7 +7125,7 @@ function payExistingOrder(orderId, method) {
                     <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
                         
                         <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
-                            <h3 class="text-3xl font-black uppercase tracking-widest mb-2 print:mt-0">COCINA</h3>
+                            <h3 class="text-2xl font-black uppercase tracking-widest mb-2 print:mt-0">${headerTitle}</h3>
                             <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
                                 ${tableNameDisplay}
                             </p>
@@ -7063,7 +7137,7 @@ function payExistingOrder(orderId, method) {
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
-                            ${kitchenItems.length > 0 ? kitchenItems.map(item => `
+                            ${itemsToPrint.length > 0 ? itemsToPrint.map(item => `
                                 <div class="flex justify-start items-start mb-2 font-bold text-black border-b border-gray-300 pb-2">
                                     <span class="w-8 font-black text-xl">${item.quantity}x</span>
                                     <span class="flex-1 text-base leading-tight">
@@ -7080,7 +7154,7 @@ function payExistingOrder(orderId, method) {
                     </div>
                     
                     <div class="w-full max-w-[320px] flex flex-col gap-2 mt-4 print:hidden shrink-0 pb-4">
-                        <button type="button" onclick="window.print()" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                        <button type="button" onclick="executeKitchenPrint(${order.id})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
                             🖨️ Imprimir Comanda
                         </button>
                         <button type="button" onclick="showReceipt(state.sales.find(s => s.id === ${saleId}))" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300 flex items-center justify-center gap-2">
@@ -7089,6 +7163,21 @@ function payExistingOrder(orderId, method) {
                     </div>
                 </div>  
             `;
+        }
+
+        // ==================== CEREBRO DE REGISTRO DE IMPRESIÓN ====================
+        function executeKitchenPrint(orderId) {
+            // Mandamos imprimir nativamente en Android / Chrome
+            window.print();
+            
+            // La magia: Le decimos a la base de datos qué productos ya salieron por la impresora
+            const order = state.orders.find(o => o.id === orderId);
+            if (order) {
+                order.items.forEach(item => {
+                    item.printedQty = item.quantity;
+                });
+                saveToStorage();
+            }
         }
 
         // ==================== PRE-CUENTA (TICKET PARA LA MESA SIN PAGAR) ====================
