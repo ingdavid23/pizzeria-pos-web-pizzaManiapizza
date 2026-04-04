@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="es" class="h-full">
 
@@ -1027,7 +1028,6 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
         }
 
         // ==================== NAVIGATION ====================
-        // ==================== NAVIGATION ====================
         function renderNavigation() {
             const nav = document.getElementById('mainNav');
             const navItems = {
@@ -1038,14 +1038,14 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                     { id: 'inventory', icon: '📦', label: 'Inventario' },
                     { id: 'products', icon: '🍴', label: 'Productos' },
                     { id: 'users', icon: '👥', label: 'Usuarios' },
-                    { id: 'reports', icon: '📈', label: 'Estadísticas' }, // <-- CAMBIADO AQUÍ
+                    { id: 'reports', icon: '📈', label: 'Estadísticas' },
                     { id: 'settings', icon: '⚙️', label: 'Configuración' }
                 ],
                 cashier: [
                     { id: 'pos', icon: '🛒', label: 'Punto de Venta' },
                     { id: 'orders', icon: '📋', label: 'Pedidos' },
                     { id: 'cashregister', icon: '💵', label: 'Caja' },
-                    { id: 'tickethistory', icon: '🧾', label: 'Historial Tickets' } // Pestaña agregada
+                    { id: 'tickethistory', icon: '🧾', label: 'Historial Tickets' }
                 ],
                 kitchen: [
                     { id: 'kitchen', icon: '👨‍🍳', label: 'Cocina' }
@@ -1058,13 +1058,20 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
 
             const items = navItems[currentUser.role] || [];
             
+            // 💡 MAGIA DE MÓDULOS: Filtrar pestañas si estamos en modo "Solo Mostrador"
+            let filteredItems = items;
+            if (state.settings && state.settings.systemMode === 'counter') {
+                filteredItems = items.filter(item => item.id !== 'kitchen' && item.id !== 'waiter' && item.id !== 'myorders');
+            }
+            
             // Inyectar pestaña de Control Global SOLO para el Admin de la Principal
             if (currentUser.role === 'admin' && currentBranch === 'sucursal_principal') {
-                if (!items.find(item => item.id === 'global')) {
-                    items.splice(1, 0, { id: 'global', icon: '🌍', label: 'Control Global' }); // Se inserta junto al Dashboard
+                if (!filteredItems.find(item => item.id === 'global')) {
+                    filteredItems.splice(1, 0, { id: 'global', icon: '🌍', label: 'Control Global' });
                 }
             }
-            nav.querySelector('div').innerHTML = items.map(item => `
+            
+            nav.querySelector('div').innerHTML = filteredItems.map(item => `
                 <button onclick="renderView('${item.id}')" id="nav-${item.id}" 
                     class="flex items-center gap-2 px-4 py-2 rounded-xl transition whitespace-nowrap
                     ${currentView === item.id ? 'bg-theme-green text-white shadow-md font-medium' : 'hover:bg-white/60 text-theme-textMuted'}">
@@ -1073,7 +1080,6 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
                 </button>
             `).join('');
         }
-
 
         function renderView(viewId) {
             currentView = viewId;
@@ -1838,7 +1844,6 @@ function processPayment(method) {
             showOrderPaymentModal(dummyOrder, method);
         }
 
-        
         // ==================== VENTANA DEL TICKET (LOGO, TÉRMICA Y DESGLOSE DE PAGO) ====================
         function showReceipt(sale) {
             const modal = document.getElementById('modalContainer');
@@ -1961,9 +1966,11 @@ function processPayment(method) {
                             </button>
                         </div>
                         
-                        <button type="button" onclick="printKitchenTicketFromPOS(${sale.orderId}, ${sale.id})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
-                            👨‍🍳 Imprimir Comanda de Cocina
-                        </button>
+                        ${(!state.settings || state.settings.systemMode !== 'counter') ? `
+                            <button type="button" onclick="printKitchenTicketFromPOS(${sale.orderId}, ${sale.id})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
+                                👨‍🍳 Imprimir Comanda de Cocina
+                            </button>
+                        ` : ''}
 
                         <button type="button" onclick="closeModal()" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300">
                             Cerrar Ventana
@@ -5064,8 +5071,8 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-        // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
-        function processPartialPayment(orderId, method) {
+       // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
+       function processPartialPayment(orderId, method) {
             // Escudo anti doble clic
             const btn = document.getElementById('confirmOrderPaymentBtn');
             if (btn && btn.getAttribute('data-processing') === 'true') return;
@@ -5078,17 +5085,21 @@ function payExistingOrder(orderId, method) {
 
             let order;
 
-            // 💡 SOLUCIÓN: Si detectamos que es una orden nueva de mostrador, LA CREAMOS REALMENTE AQUÍ.
+            // Si es una orden nueva de mostrador
             if (orderId === 'new_counter') {
                 const total = calculateCartTotal();
                 const newOrderId = Date.now();
+                
+                // 💡 LÓGICA MODO LITE: Verificamos en qué modo está el sistema
+                const isLiteMode = state.settings && state.settings.systemMode === 'counter';
                 
                 order = {
                     id: newOrderId,
                     type: 'counter',
                     items: [...currentCart],
                     total: total,
-                    status: 'pending', // Va a cocina
+                    // 💡 MAGIA: Si es modo Lite, nace como "delivered" para NO ir a cocina ni a pedidos activos
+                    status: isLiteMode ? 'delivered' : 'pending', 
                     paymentMethod: null,
                     paymentStatus: 'pending',
                     paidAmount: 0,
@@ -5116,7 +5127,12 @@ function payExistingOrder(orderId, method) {
                 checkProductAvailability();
 
                 state.orders.push(order);
-                try { addNotification('info', `Nuevo pedido #${newOrderId.toString().slice(-4)}`, ['kitchen']); } catch(e){}
+                
+                // 💡 LÓGICA MODO LITE: Solo avisamos a la cocina si estamos en Restaurante Completo
+                if (!isLiteMode) {
+                    try { addNotification('info', `Nuevo pedido #${newOrderId.toString().slice(-4)}`, ['kitchen']); } catch(e){}
+                }
+                
                 logActivity('ORDER_CREATE', `Pedido #${newOrderId.toString().slice(-4)} creado por $${total}`);
 
                 // Limpiamos el carrito visual
@@ -5202,7 +5218,6 @@ function payExistingOrder(orderId, method) {
                 showReceipt(sale);
 
             } else {
-                // ... (el resto del código del else se queda igual)
                 // Aún debe dinero (Abono Parcial Exitoso)
                 const remaining = order.total - order.paidAmount;
                 saveToStorage();
@@ -5929,15 +5944,34 @@ function payExistingOrder(orderId, method) {
             });
         }
         // ==================== SETTINGS MODULE ====================
-        // ==================== SETTINGS MODULE ====================
-        // ==================== SETTINGS MODULE ====================
-        // ==================== SETTINGS MODULE ====================
         function renderSettings(container) {
             container.innerHTML = `
                 <div class="animate-slideIn">
                     <h2 class="text-2xl font-bold mb-6 flex items-center gap-3 text-theme-greenDark">⚙️ Configuración</h2>
 
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                       
+        <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
+            <h3 class="font-extrabold text-lg mb-5 text-theme-text border-b border-theme-beige pb-3">🏪 Modo de Operación</h3>
+            <div class="space-y-4">
+                <label class="flex items-center gap-3 p-4 bg-white rounded-xl border ${(!state.settings || state.settings.systemMode !== 'counter') ? 'border-theme-green bg-green-50/30' : 'border-theme-beige'} cursor-pointer transition hover:shadow-md">
+                    <input type="radio" name="sysMode" value="full" class="w-5 h-5 text-theme-green focus:ring-theme-green cursor-pointer" ${(!state.settings || state.settings.systemMode !== 'counter') ? 'checked' : ''} onchange="changeSystemMode('full')">
+                    <div>
+                        <p class="font-bold text-theme-text">🍽️ Restaurante Completo (Pro)</p>
+                        <p class="text-xs text-theme-textMuted font-medium mt-1">Incluye Punto de Venta, plano de Mesas, Meseros y pantalla de Cocina.</p>
+                    </div>
+                </label>
+                <label class="flex items-center gap-3 p-4 bg-white rounded-xl border ${(state.settings && state.settings.systemMode === 'counter') ? 'border-theme-green bg-green-50/30' : 'border-theme-beige'} cursor-pointer transition hover:shadow-md">
+                    <input type="radio" name="sysMode" value="counter" class="w-5 h-5 text-theme-green focus:ring-theme-green cursor-pointer" ${(state.settings && state.settings.systemMode === 'counter') ? 'checked' : ''} onchange="changeSystemMode('counter')">
+                    <div>
+                        <p class="font-bold text-theme-text">🏪 Solo Mostrador (Lite)</p>
+                        <p class="text-xs text-theme-textMuted font-medium mt-1">Oculta Mesas y Cocina. Ideal para negocios de cobro rápido y venta directa.</p>
+                    </div>
+                </label>
+            </div>
+        </div>
+
                         <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
                             <h3 class="font-extrabold text-lg mb-5 text-theme-text border-b border-theme-beige pb-3">💾 Gestión de Datos</h3>
                             <div class="space-y-3">
@@ -6974,30 +7008,27 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-     // ==================== TICKET DE COCINA INTELIGENTE (COMANDERO) ====================
-     function printKitchenTicket(orderId, tableId = null) {
+    // ==================== TICKET DE COCINA INTELIGENTE (COMANDERO) ====================
+    function printKitchenTicket(orderId, tableId = null) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
             let isReprint = false;
             let itemsToPrint = [];
 
-            // 1. Buscamos qué artículos son NUEVOS (su cantidad es mayor a la ya impresa)
             order.items.forEach(item => {
                 const prod = state.products.find(p => p.id === item.productId);
                 if (!prod) return;
                 const cat = prod.category ? prod.category.toLowerCase() : '';
                 
                 if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
-                    // Calculamos la diferencia entre lo que pidieron y lo que ya se imprimió antes
                     const unprintedQty = item.quantity - (item.printedQty || 0);
                     if (unprintedQty > 0) {
-                        itemsToPrint.push({ ...item, quantity: unprintedQty }); // Solo agregamos los nuevos
+                        itemsToPrint.push({ ...item, quantity: unprintedQty });
                     }
                 }
             });
 
-            // 2. Si no hay nada nuevo, significa que es una REIMPRESIÓN. Mostramos todo.
             if (itemsToPrint.length === 0) {
                 isReprint = true;
                 order.items.forEach(item => {
@@ -7010,7 +7041,6 @@ function payExistingOrder(orderId, method) {
                 });
             }
 
-            // 3. Título dinámico para avisarle al Chef
             let headerTitle = "COCINA";
             if (isReprint) {
                 headerTitle = "REIMPRESIÓN";
@@ -7023,30 +7053,29 @@ function payExistingOrder(orderId, method) {
             const modal = document.getElementById('modalContainer');
             
             modal.innerHTML = `
-                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative z-[99999]">
+                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-center md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative z-[99999]">
                     
-                    <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
+                    <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-auto" id="printArea">
                         
                         <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
                             <h3 class="text-2xl font-black uppercase tracking-widest mb-2 print:mt-0">${headerTitle}</h3>
-                            <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
+                            <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block text-center">
                                 ${tableNameDisplay}
                             </p>
                             <p class="text-[12px] mt-2 font-bold">${new Date().toLocaleString('es-MX')}</p>
                             <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
                         </div>
 
-                        <div class="space-y-3 mb-4 text-[12px] leading-tight">
+                        <div class="space-y-3 mb-4 text-[12px] leading-tight w-full">
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
                             ${itemsToPrint.length > 0 ? itemsToPrint.map(item => `
-                                <div class="flex justify-start items-start mb-2 font-bold text-black border-b border-gray-300 pb-2">
-                                    <span class="w-8 font-black text-xl">${item.quantity}x</span>
-                                    <span class="flex-1 text-base leading-tight">
-                                        ${item.name.toUpperCase()}
-                                        ${item.note ? `<br><span style="font-size:14px; font-weight:900; padding:2px; display:inline-block; border:2px solid black; margin-top:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
+                                <div class="flex flex-col items-center justify-center mb-2 font-bold text-black border-b border-gray-300 pb-3 text-center w-full">
+                                    <span class="font-black text-xl leading-tight">
+                                        ${item.quantity}x ${item.name.toUpperCase()}
                                     </span>
+                                    ${item.note ? `<span style="font-size:14px; font-weight:900; padding:2px 6px; display:inline-block; border:2px solid black; margin-top:6px; border-radius:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
                                 </div>
                             `).join('') : '<div class="text-center py-4 font-black text-[14px] border-b border-gray-300">SOLO BEBIDAS</div>'}
                         </div>
@@ -7120,30 +7149,29 @@ function payExistingOrder(orderId, method) {
             const modal = document.getElementById('modalContainer');
             
             modal.innerHTML = `
-                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-start md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative z-[99999]">
+                <div class="glass bg-black/60 p-4 md:p-8 print:p-0 w-full h-full md:h-auto md:max-w-md animate-slideIn flex flex-col items-center justify-center print:justify-start print:items-center md:rounded-3xl print:rounded-none overflow-y-auto print:overflow-visible scrollbar-thin relative z-[99999]">
                     
-                    <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-0" id="printArea">
+                    <div class="bg-white text-black font-bold p-5 print:p-0 print:pt-0 w-full max-w-[300px] print:w-[80mm] print:max-w-[80mm] font-mono shadow-2xl print:shadow-none relative mx-auto print:mx-auto" id="printArea">
                         
                         <div class="text-center border-b-2 border-dashed border-black pb-3 mb-3 print:pb-2 print:mb-2 print:mt-0">
                             <h3 class="text-2xl font-black uppercase tracking-widest mb-2 print:mt-0">${headerTitle}</h3>
-                            <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block">
+                            <p class="text-xl font-black uppercase border-2 border-black py-1 px-2 inline-block text-center">
                                 ${tableNameDisplay}
                             </p>
                             <p class="text-[12px] mt-2 font-bold">${new Date(order.createdAt).toLocaleString('es-MX')}</p>
                             <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
                         </div>
 
-                        <div class="space-y-3 mb-4 text-[12px] leading-tight">
+                        <div class="space-y-3 mb-4 text-[12px] leading-tight w-full">
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
                             ${itemsToPrint.length > 0 ? itemsToPrint.map(item => `
-                                <div class="flex justify-start items-start mb-2 font-bold text-black border-b border-gray-300 pb-2">
-                                    <span class="w-8 font-black text-xl">${item.quantity}x</span>
-                                    <span class="flex-1 text-base leading-tight">
-                                        ${item.name.toUpperCase()}
-                                        ${item.note ? `<br><span style="font-size:14px; font-weight:900; padding:2px; display:inline-block; border:2px solid black; margin-top:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
+                                <div class="flex flex-col items-center justify-center mb-2 font-bold text-black border-b border-gray-300 pb-3 text-center w-full">
+                                    <span class="font-black text-xl leading-tight">
+                                        ${item.quantity}x ${item.name.toUpperCase()}
                                     </span>
+                                    ${item.note ? `<span style="font-size:14px; font-weight:900; padding:2px 6px; display:inline-block; border:2px solid black; margin-top:6px; border-radius:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
                                 </div>
                             `).join('') : '<div class="text-center py-4 font-black text-[14px] border-b border-gray-300">SOLO BEBIDAS</div>'}
                         </div>
@@ -7348,6 +7376,49 @@ function payExistingOrder(orderId, method) {
             } catch (error) {
                 console.error("Error al borrar ticket fantasma:", error);
                 showToast('Error de conexión al borrar', 'error');
+            }
+        }
+
+       // ==================== INTERRUPTOR DE MODO CON CONTRASEÑA ====================
+       function changeSystemMode(targetMode) {
+            // Primero, revertimos visualmente el radio button mientras pedimos la clave
+            renderSettings(document.getElementById('contentArea'));
+
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-sm animate-slideIn shadow-2xl border-2 border-theme-green text-center">
+                    <div class="text-5xl mb-4">🔐</div>
+                    <h3 class="text-xl font-extrabold mb-2 text-theme-text">Cambio de Configuración</h3>
+                    <p class="text-sm text-theme-textMuted mb-4 font-medium">Ingresa la contraseña maestra para cambiar el modo de operación:</p>
+                    
+                    <input type="password" id="modePasswordInput" class="w-full px-4 py-3 mb-6 bg-white border-2 border-theme-beige rounded-xl text-2xl text-center focus:outline-none focus:border-theme-green font-bold text-theme-text shadow-inner" placeholder="****">
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="closeModal(); renderSettings(document.getElementById('contentArea'));" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="verifyModePassword('${targetMode}')" class="btn-primary py-3 rounded-xl font-bold shadow-md transition">Confirmar</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+            setTimeout(() => document.getElementById('modePasswordInput').focus(), 100);
+        }
+
+        function verifyModePassword(targetMode) {
+            const passInput = document.getElementById('modePasswordInput').value;
+            
+            if (passInput === '2310') {
+                if (!state.settings) state.settings = {};
+                state.settings.systemMode = targetMode;
+                saveToStorage();
+                showToast('✅ Modo de operación actualizado', 'success');
+                closeModal();
+                renderSettings(document.getElementById('contentArea')); // Refresca los botones
+                renderNavigation(); // Oculta o muestra las pestañas arriba
+            } else {
+                showToast('❌ Contraseña incorrecta', 'error');
+                const inputEl = document.getElementById('modePasswordInput');
+                inputEl.classList.add('animate-shake', 'border-red-500');
+                setTimeout(() => inputEl.classList.remove('animate-shake', 'border-red-500'), 500);
             }
         }
 
