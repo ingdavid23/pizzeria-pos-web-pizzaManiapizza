@@ -7105,8 +7105,9 @@ function payExistingOrder(orderId, method) {
             modal.classList.remove('hidden');
         }
 
-       // ==================== COMANDA DE COCINA (VERSIÓN PUNTO DE VENTA) ====================
-       function printKitchenTicketFromPOS(orderId, saleId) {
+       
+    // ==================== COMANDA DE COCINA (VERSIÓN PUNTO DE VENTA) ====================
+    function printKitchenTicketFromPOS(orderId, saleId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
@@ -7184,7 +7185,8 @@ function payExistingOrder(orderId, method) {
                         <button type="button" onclick="executeKitchenPrint(${order.id})" class="w-full bg-[#F3A70D] hover:bg-orange-500 text-white py-3 text-sm font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition">
                             🖨️ Imprimir Comanda
                         </button>
-                        <button type="button" onclick="showReceipt(state.sales.find(s => s.id === ${saleId}))" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300 flex items-center justify-center gap-2">
+                        
+                        <button type="button" onclick="reprintTicket(${saleId})" class="w-full py-3 bg-white text-black font-bold rounded-xl hover:bg-gray-200 transition shadow-sm border border-gray-300 flex items-center justify-center gap-2">
                             ⬅️ Volver al Ticket de Venta
                         </button>
                     </div>
