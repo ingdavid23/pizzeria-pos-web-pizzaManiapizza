@@ -5464,86 +5464,100 @@ function payExistingOrder(orderId, method) {
             });
         }
         // ==================== GENERADOR DE REPORTES DIARIO/SEMANAL ====================
-        function generateReport(type) {
-            const today = new Date();
-            let filteredSales = [];
-            let title = "";
-            let dateStr = "";
+        async function generateReport(type) {
+            try {
+                showToast('Generando reporte...', 'info');
+                const today = new Date();
+                let filteredSales = [];
+                let title = "";
+                let dateStr = "";
 
-            if (type === 'daily') {
-                filteredSales = state.sales.filter(s => new Date(s.timestamp).toDateString() === today.toDateString());
-                title = "Corte de Ventas Diario";
-                dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-            } else if (type === 'weekly') {
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                sevenDaysAgo.setHours(0, 0, 0, 0);
-                filteredSales = state.sales.filter(s => new Date(s.timestamp) >= sevenDaysAgo);
-                title = "Reporte de Ventas Semanal";
-                dateStr = `Del ${sevenDaysAgo.toLocaleDateString('es-MX')} al ${today.toLocaleDateString('es-MX')}`;
+                if (type === 'daily') {
+                    // Para el diario, la memoria rápida funciona perfecto
+                    filteredSales = state.sales.filter(s => new Date(s.timestamp).toDateString() === today.toDateString());
+                    title = "Corte de Ventas Diario";
+                    dateStr = today.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                } else if (type === 'weekly') {
+                    // 💡 SOLUCIÓN: Para el semanal, descargamos los 7 días de la nube
+                    const sevenDaysAgo = new Date();
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                    sevenDaysAgo.setHours(0, 0, 0, 0);
+                    
+                    const snapshot = await db.collection('pizzaManager').doc(currentBranch)
+                        .collection('sales')
+                        .where('timestamp', '>=', sevenDaysAgo.toISOString())
+                        .get();
+                    
+                    snapshot.forEach(doc => filteredSales.push(doc.data()));
+                    
+                    title = "Reporte de Ventas Semanal";
+                    dateStr = `Del ${sevenDaysAgo.toLocaleDateString('es-MX')} al ${today.toLocaleDateString('es-MX')}`;
+                }
+
+                const total = filteredSales.reduce((sum, s) => sum + s.total, 0);
+                const cashTotal = filteredSales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.total, 0);
+                const transferTotal = filteredSales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + s.total, 0);
+                
+                const totalItemsSold = filteredSales.reduce((sum, s) => sum + s.items.reduce((itemSum, i) => itemSum + i.quantity, 0), 0);
+
+                const modal = document.getElementById('modalContainer');
+                modal.innerHTML = `
+                    <div class="bg-white text-theme-text rounded-3xl p-6 md:p-8 w-[95%] max-w-lg animate-slideIn shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin" id="printArea">
+                        <div class="text-center border-b-2 border-dashed border-theme-beige pb-6 mb-6">
+                            <p class="text-4xl mb-3">📈</p>
+                            <h3 class="text-2xl font-extrabold text-theme-greenDark">SISTEMA POS</h3>
+                            <p class="text-lg font-bold text-theme-text mt-2 uppercase">${title}</p>
+                            <p class="text-sm text-theme-textMuted mt-1 capitalize">${dateStr}</p>
+                        </div>
+
+                        <div class="space-y-4 mb-8">
+                            <div class="flex justify-between p-4 bg-theme-bg rounded-xl border border-theme-beige">
+                                <span class="font-bold text-theme-textMuted">Tickets Procesados:</span>
+                                <span class="font-extrabold text-theme-text">${filteredSales.length}</span>
+                            </div>
+                            <div class="flex justify-between p-4 bg-theme-bg rounded-xl border border-theme-beige">
+                                <span class="font-bold text-theme-textMuted">Artículos Vendidos:</span>
+                                <span class="font-extrabold text-theme-text">${totalItemsSold}</span>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4 mt-2">
+                                <div class="p-4 bg-green-50 rounded-xl border border-green-200 text-center">
+                                    <p class="text-xs font-bold text-green-700">En Efectivo</p>
+                                    <p class="text-xl font-extrabold text-green-600 mt-1">$${cashTotal.toLocaleString()}</p>
+                                </div>
+                                <div class="p-4 bg-blue-50 rounded-xl border border-blue-200 text-center">
+                                    <p class="text-xs font-bold text-blue-700">En Transferencia</p>
+                                    <p class="text-xl font-extrabold text-blue-600 mt-1">$${transferTotal.toLocaleString()}</p>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-between items-center p-5 bg-white rounded-xl border-2 border-theme-green shadow-sm mt-4">
+                                <span class="font-extrabold text-lg text-theme-text">INGRESOS TOTALES:</span>
+                                <span class="font-extrabold text-2xl text-theme-greenDark">$${total.toLocaleString()}</span>
+                            </div>
+                        </div>
+
+                        <div class="text-center pt-6 border-t border-theme-beige text-xs font-medium text-theme-textMuted">
+                            <p>Reporte generado por: ${currentUser.name} (${currentUser.role})</p>
+                            <p>Fecha de impresión: ${new Date().toLocaleString('es-MX')}</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 mt-8 print:hidden">
+                            <button onclick="closeModal()" class="py-3.5 bg-theme-bg text-theme-text font-bold rounded-xl border border-theme-beige hover:bg-theme-beige transition">
+                                Cerrar
+                            </button>
+                            <button onclick="window.print()" class="btn-primary py-3.5 font-bold rounded-xl shadow-md flex items-center justify-center gap-2">
+                                🖨️ Imprimir Reporte
+                            </button>
+                        </div>
+                    </div>
+                `;
+                modal.classList.remove('hidden');
+            } catch(e) {
+                console.error(e);
+                showToast("Error al generar reporte", "error");
             }
-
-            const total = filteredSales.reduce((sum, s) => sum + s.total, 0);
-            const cashTotal = filteredSales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.total, 0);
-            const transferTotal = filteredSales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + s.total, 0);
-            
-            const totalItemsSold = filteredSales.reduce((sum, s) => sum + s.items.reduce((itemSum, i) => itemSum + i.quantity, 0), 0);
-
-            const modal = document.getElementById('modalContainer');
-            modal.innerHTML = `
-                <div class="bg-white text-theme-text rounded-3xl p-6 md:p-8 w-[95%] max-w-lg animate-slideIn shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin" id="printArea">
-                    <div class="text-center border-b-2 border-dashed border-theme-beige pb-6 mb-6">
-                        <p class="text-4xl mb-3">📈</p>
-                        <h3 class="text-2xl font-extrabold text-theme-greenDark">SISTEMA POS</h3>
-                        <p class="text-lg font-bold text-theme-text mt-2 uppercase">${title}</p>
-                        <p class="text-sm text-theme-textMuted mt-1 capitalize">${dateStr}</p>
-                    </div>
-
-                    <div class="space-y-4 mb-8">
-                        <div class="flex justify-between p-4 bg-theme-bg rounded-xl border border-theme-beige">
-                            <span class="font-bold text-theme-textMuted">Tickets Procesados:</span>
-                            <span class="font-extrabold text-theme-text">${filteredSales.length}</span>
-                        </div>
-                        <div class="flex justify-between p-4 bg-theme-bg rounded-xl border border-theme-beige">
-                            <span class="font-bold text-theme-textMuted">Artículos Vendidos:</span>
-                            <span class="font-extrabold text-theme-text">${totalItemsSold}</span>
-                        </div>
-                        
-                        <div class="grid grid-cols-2 gap-4 mt-2">
-                            <div class="p-4 bg-green-50 rounded-xl border border-green-200 text-center">
-                                <p class="text-xs font-bold text-green-700">En Efectivo</p>
-                                <p class="text-xl font-extrabold text-green-600 mt-1">$${cashTotal.toLocaleString()}</p>
-                            </div>
-                            <div class="p-4 bg-blue-50 rounded-xl border border-blue-200 text-center">
-                                <p class="text-xs font-bold text-blue-700">En Transferencia</p>
-                                <p class="text-xl font-extrabold text-blue-600 mt-1">$${transferTotal.toLocaleString()}</p>
-                            </div>
-                        </div>
-
-                        <div class="flex justify-between items-center p-5 bg-white rounded-xl border-2 border-theme-green shadow-sm mt-4">
-                            <span class="font-extrabold text-lg text-theme-text">INGRESOS TOTALES:</span>
-                            <span class="font-extrabold text-2xl text-theme-greenDark">$${total.toLocaleString()}</span>
-                        </div>
-                    </div>
-
-                    <div class="text-center pt-6 border-t border-theme-beige text-xs font-medium text-theme-textMuted">
-                        <p>Reporte generado por: ${currentUser.name} (${currentUser.role})</p>
-                        <p>Fecha de impresión: ${new Date().toLocaleString('es-MX')}</p>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-3 mt-8 print:hidden">
-                        <button onclick="closeModal()" class="py-3.5 bg-theme-bg text-theme-text font-bold rounded-xl border border-theme-beige hover:bg-theme-beige transition">
-                            Cerrar
-                        </button>
-                        <button onclick="window.print()" class="btn-primary py-3.5 font-bold rounded-xl shadow-md flex items-center justify-center gap-2">
-                            🖨️ Imprimir Reporte
-                        </button>
-                    </div>
-                </div>
-            `;
-            modal.classList.remove('hidden');
         }
-
         // ==================== REPORTE DE INVENTARIO (PDF) ====================
         // ==================== REPORTE DE INVENTARIO SEMANAL (PDF) ====================
         function generateInventoryReport() {
@@ -5746,30 +5760,33 @@ function payExistingOrder(orderId, method) {
             });
         }
 
-        // ==================== REPORTE MENSUAL COMPLETO (PDF) - CONECTADO A LA GRÁFICA ====================
-        function generateMonthlyReport() {
+        // ==================== REPORTE MENSUAL COMPLETO (PDF) - CONECTADO A LA NUBE ====================
+        async function generateMonthlyReport() {
             try {
-                // 1. Escudos de seguridad: Asegurar que existan los arreglos
-                if (!state.sales) state.sales = [];
+                showToast('Consultando el archivo en la nube...', 'info');
+
+                // 1. Escudos de seguridad
                 if (!state.inventory) state.inventory = [];
-                if (!state.expenses) state.expenses = []; // Escudo para gastos
+                if (!state.expenses) state.expenses = [];
 
-                // 🌟 MAGIA: Usamos el mes y año que el usuario tiene seleccionado en la gráfica
-                // Si la gráfica está en "Últimos 7 días", tomará el mes actual por defecto
-                const targetDate = new Date(reportSelectedYear, reportSelectedMonth, 1);
-                const currentMonthName = targetDate.toLocaleString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();
-                
-                // Calculamos el primer y último día del MES SELECCIONADO
+                // Calculamos el primer y último día del MES SELECCIONADO en la gráfica
                 const firstDay = new Date(reportSelectedYear, reportSelectedMonth, 1);
+                firstDay.setHours(0, 0, 0, 0);
+                
                 const lastDay = new Date(reportSelectedYear, reportSelectedMonth + 1, 0, 23, 59, 59);
+                const currentMonthName = firstDay.toLocaleString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();
 
-                // Filtrar ventas y gastos del mes exacto que se está viendo
-                const monthlySales = state.sales.filter(s => {
-                    if (!s.timestamp) return false;
-                    const sDate = new Date(s.timestamp);
-                    return sDate >= firstDay && sDate <= lastDay;
-                });
+                // 💡 SOLUCIÓN MAGISTRAL: Viajamos directo a Firebase a descargar el mes completo
+                const snapshot = await db.collection('pizzaManager').doc(currentBranch)
+                    .collection('sales')
+                    .where('timestamp', '>=', firstDay.toISOString())
+                    .where('timestamp', '<=', lastDay.toISOString())
+                    .get();
 
+                const monthlySales = [];
+                snapshot.forEach(doc => monthlySales.push(doc.data()));
+
+                // Filtrar gastos del mes exacto
                 const monthlyExpenses = state.expenses.filter(e => {
                     if (!e.timestamp) return false;
                     const eDate = new Date(e.timestamp);
@@ -5781,7 +5798,6 @@ function payExistingOrder(orderId, method) {
                 const cashIncome = monthlySales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + (s.total || 0), 0);
                 const transferIncome = monthlySales.filter(s => s.paymentMethod === 'transfer').reduce((sum, s) => sum + (s.total || 0), 0);
                 
-                // Sumar gastos y sacar ganancia neta
                 const totalEgresos = monthlyExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
                 const netProfit = totalIncome - totalEgresos;
 
