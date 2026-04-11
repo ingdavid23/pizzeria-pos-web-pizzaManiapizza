@@ -242,26 +242,26 @@
             user-select: none;
         }
 
-        /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA */
-        @media print {
+       /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA (80x297mm) */
+       @media print {
             @page {
                 margin: 0 !important;
-                size: 80mm auto; /* Papel de rollo continuo */
+                size: 80mm 297mm; /* Ajustado a la configuración de tu Windows */
             }
             
             html, body {
                 margin: 0 !important;
                 padding: 0 !important;
                 background: white !important;
-                height: auto !important;
+                width: 80mm !important;
             }
 
-            /* 1. Ocultar TODO el sistema de fondo para que no genere páginas extra */
+            /* 1. Ocultar TODO el sistema de fondo */
             #app > :not(#modalContainer) {
                 display: none !important;
             }
 
-            /* 2. EL SECRETO: Quitar el 'fixed' al modal para que NO se repita como sello */
+            /* 2. Quitar el 'fixed' al modal */
             #modalContainer {
                 position: static !important; 
                 display: block !important;
@@ -270,7 +270,7 @@
                 padding: 0 !important;
             }
 
-            /* 3. Asegurar que la ventana interna del ticket fluya normal */
+            /* 3. Asegurar que la ventana interna fluya normal */
             #modalContainer > div {
                 position: static !important;
                 height: auto !important;
@@ -280,19 +280,18 @@
                 padding: 0 !important;
             }
 
-            /* 4. Ocultar los botones de "Imprimir" y "Cerrar" para que no salgan en el papel */
+            /* 4. Ocultar los botones en el papel */
             .print\:hidden {
                 display: none !important;
             }
 
-            /* 5. Ajustar el ticket al área imprimible real (Evita que corte los bordes) */
+            /* 5. EL TRUCO: Ancho real del cabezal y empuje a la derecha */
             #printArea {
                 position: static !important;
-                width: 100% !important;
-                max-width: 74mm !important; /* Área real de impresión del cabezal */
-                margin: 0 auto !important; /* Centra el contenido en el papel */
-                padding: 0 4mm !important; /* Colchón de seguridad a los lados */
-                box-sizing: border-box !important;
+                width: 72mm !important; /* 72mm es el área real que quema la impresora */
+                max-width: 72mm !important;
+                margin: 0 0 0 4mm !important; /* Empuja todo 4 milímetros a la DERECHA */
+                padding: 0 !important;
                 box-shadow: none !important;
             }
         }
