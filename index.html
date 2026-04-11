@@ -285,13 +285,14 @@
                 display: none !important;
             }
 
-            /* 5. Ajustar el ticket exacto al papel de 80mm */
+            /* 5. Ajustar el ticket al área imprimible real (Evita que corte los bordes) */
             #printArea {
                 position: static !important;
-                width: 80mm !important;
-                max-width: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
+                width: 100% !important;
+                max-width: 74mm !important; /* Área real de impresión del cabezal */
+                margin: 0 auto !important; /* Centra el contenido en el papel */
+                padding: 0 4mm !important; /* Colchón de seguridad a los lados */
+                box-sizing: border-box !important;
                 box-shadow: none !important;
             }
         }
