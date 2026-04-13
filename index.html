@@ -290,13 +290,14 @@
                 display: none !important;
             }
 
-            /* Área de impresión fluida y protegida */
-            #printArea {
+           /* Área de impresión fluida y protegida */
+           #printArea {
                 position: static !important;
-                width: 100% !important; /* Se adapta a 58mm o 80mm solo */
+                width: 100% !important; 
                 max-width: 100% !important;
                 margin: 0 !important;
-                padding: 0 4mm !important; /* Colchón de seguridad para que no muerda letras */
+                /* 💡 AJUSTE: Arriba 0, Derecha 9mm (empuja precios adentro), Abajo 0, Izquierda 4mm (salva las letras) */
+                padding: 0 9mm 0 4mm !important; 
                 box-shadow: none !important;
                 box-sizing: border-box !important;
             }
