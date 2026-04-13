@@ -242,57 +242,63 @@
             user-select: none;
         }
 
-       /* 🖨️ ESTILOS ESTRICTOS PARA IMPRESORA TÉRMICA (80x297mm) */
+       /* 🖨️ ESTILOS UNIVERSALES PARA IMPRESORAS TÉRMICAS (80mm y 58mm) */
        @media print {
             @page {
                 margin: 0 !important;
-                size: 80mm 297mm; /* Ajustado a la configuración de tu Windows */
+                /* 💡 Eliminamos la medida fija para que Windows decida si usa la de 80 o la de 58 automáticamente */
             }
             
             html, body {
                 margin: 0 !important;
                 padding: 0 !important;
                 background: white !important;
-                width: 80mm !important;
+                width: 100% !important;
+                height: max-content !important; /* 💡 Evita que el navegador crea que la página mide 3 metros */
             }
 
-            /* 1. Ocultar TODO el sistema de fondo */
+            /* Ocultar TODO el sistema de fondo */
             #app > :not(#modalContainer) {
                 display: none !important;
             }
 
-            /* 2. Quitar el 'fixed' al modal */
+            /* Quitar el comportamiento de pantalla completa al modal */
             #modalContainer {
                 position: static !important; 
                 display: block !important;
-                height: auto !important;
+                height: max-content !important;
+                min-height: 0 !important;
                 background: white !important;
                 padding: 0 !important;
             }
 
-            /* 3. Asegurar que la ventana interna fluya normal */
+            /* 💡 EL TRUCO CONTRA EL ROLLO EN BLANCO: Destruir el centrado (flex) para que empiece hasta arriba */
             #modalContainer > div {
                 position: static !important;
-                height: auto !important;
+                display: block !important; /* Obliga a alinearse arriba a la izquierda */
+                height: max-content !important;
+                min-height: 0 !important;
                 box-shadow: none !important;
                 border: none !important;
                 background: white !important;
                 padding: 0 !important;
+                margin: 0 !important;
             }
 
-            /* 4. Ocultar los botones en el papel */
+            /* Ocultar los botones en el papel */
             .print\:hidden {
                 display: none !important;
             }
 
-            /* 5. EL TRUCO: Ancho real del cabezal y empuje a la derecha */
+            /* Área de impresión fluida y protegida */
             #printArea {
                 position: static !important;
-                width: 72mm !important; /* 72mm es el área real que quema la impresora */
-                max-width: 72mm !important;
-                margin: 0 0 0 4mm !important; /* Empuja todo 4 milímetros a la DERECHA */
-                padding: 0 !important;
+                width: 100% !important; /* Se adapta a 58mm o 80mm solo */
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 4mm !important; /* Colchón de seguridad para que no muerda letras */
                 box-shadow: none !important;
+                box-sizing: border-box !important;
             }
         }
     </style>
