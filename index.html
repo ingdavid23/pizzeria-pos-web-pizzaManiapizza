@@ -3034,7 +3034,9 @@ function processPayment(method) {
 
                 currentCart.forEach(cartItem => {
                     // 1. Agregar el producto a la cuenta de la mesa
-                    const existing = order.items.find(i => i.productId === cartItem.productId && i.note === cartItem.note); 
+                    // 🚨 CORRECCIÓN MAGISTRAL: Ahora comparamos el ID *Y* el NOMBRE COMPLETO para que jamás mezcle tamaños o variantes
+                    const existing = order.items.find(i => i.productId === cartItem.productId && i.name === cartItem.name && i.note === cartItem.note); 
+                    
                     if (existing) {
                         existing.quantity += cartItem.quantity;
                     } else {
