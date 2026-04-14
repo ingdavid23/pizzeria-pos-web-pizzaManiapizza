@@ -602,55 +602,69 @@ function clearAllNotifications() {
         // NUEVAS VARIABLES PARA MULTI-SUCURSAL
         let currentBranch = 'sucursal_principal'; 
         let stateUnsubscribe = null; // Para detener la sincronización al cambiar de sucursal
-
         async function saveToStorage() {
             try {
-                // 1. Clonamos el estado para manipularlo antes de enviarlo
                 const cleanState = { ...state };
                 
-                // 🌟 MAGIA ARQUITECTÓNICA MÚLTIPLE: 
-                // Extraemos las áreas de alto tráfico para que no vivan en el documento maestro y causen "choques"
+                // 🌟 MAGIA ARQUITECTÓNICA 2.1 (HISTORIAL DE COCINA PROTEGIDO)
                 const activeOrders = [...(cleanState.orders || [])];
                 const invMovements = [...(cleanState.inventoryMovements || [])];
-                const activityLogs = [...(cleanState.activityLog || [])];
                 
-                // Borramos todo esto del esqueleto para que el doc principal quede súper ligero
+                // Calculamos la fecha límite (hace 7 días)
+                const limitDate = new Date();
+                limitDate.setDate(limitDate.getDate() - 7);
+                limitDate.setHours(0, 0, 0, 0);
+
+                // Clasificamos inteligentemente los pedidos
+                const pedidosUtiles = activeOrders.filter(o => {
+                    // 1. Se queda si aún NO está pagado o cancelado (Pedido Vivo)
+                    if (o.paymentStatus !== 'paid' && o.status !== 'cancelled') return true;
+                    
+                    // 2. Si ya está terminado, se queda SOLO si es de los últimos 7 días (Historial)
+                    const orderDate = new Date(o.createdAt);
+                    return orderDate >= limitDate;
+                });
+
+                const pedidosBasura = activeOrders.filter(o => {
+                    // Se borra de la memoria rápida SOLO si ya está terminado Y tiene más de 7 días
+                    if (o.paymentStatus !== 'paid' && o.status !== 'cancelled') return false;
+                    const orderDate = new Date(o.createdAt);
+                    return orderDate < limitDate;
+                });
+                
+                // Mantenemos en la memoria de las tablets solo lo útil
+                state.orders = pedidosUtiles;
+
+                // Borramos del esqueleto para que el doc principal quede ligero
                 delete cleanState.sales;
                 delete cleanState.orders;
                 delete cleanState.inventoryMovements;
                 delete cleanState.activityLog;
+                delete cleanState.notifications;
                 
-                // Limpiamos las pizzas virtuales temporales
                 cleanState.products = cleanState.products.filter(p => !p.isVirtual);
                 
-                // 2. Guardamos el "esqueleto maestro" (mesas, inventario, productos)
+                // Guardamos el esqueleto maestro
                 await db.collection('pizzaManager').doc(currentBranch).set(cleanState);
                 
-                // 3. Guardamos los Pedidos Vivos (Orders) de forma independiente
-                // Usamos un 'batch' (lote) para asegurar que suban todos de golpe
                 const batch = db.batch();
-                
-                // Limpiar la subcolección de órdenes actual (borramos las viejas que ya se pagaron/cancelaron)
-                // y subimos el nuevo estado de las mesas
                 const ordersRef = db.collection('pizzaManager').doc(currentBranch).collection('orders');
-                const existingOrdersSnap = await ordersRef.get();
-                existingOrdersSnap.forEach(doc => {
-                    batch.delete(doc.ref);
+                
+                // 🛡️ REGLA BLINDADA: Actualizamos los útiles (vivos + historial reciente)
+                pedidosUtiles.forEach(order => {
+                    batch.set(ordersRef.doc(order.id.toString()), order);
                 });
                 
-                activeOrders.forEach(order => {
-                    const docRef = ordersRef.doc(order.id.toString());
-                    batch.set(docRef, order);
+                // Eliminamos físicamente solo los que ya caducaron (viejos)
+                pedidosBasura.forEach(order => {
+                    batch.delete(ordersRef.doc(order.id.toString()));
                 });
                 
-                // Si hay movimientos de inventario nuevos, los guardamos en su subcolección
                 if (invMovements.length > 0) {
                      const invRef = db.collection('pizzaManager').doc(currentBranch).collection('inventoryMovements');
                      invMovements.forEach(mov => {
-                          const movRef = invRef.doc(mov.id.toString());
-                          batch.set(movRef, mov);
+                          batch.set(invRef.doc(mov.id.toString()), mov);
                      });
-                     // Limpiamos del estado local para que no los vuelva a subir
                      state.inventoryMovements = []; 
                 }
 
@@ -672,14 +686,14 @@ function clearAllNotifications() {
                 console.error("Error al subir el ticket a la nube:", error);
             }
         }
-        // 💡 Pon estas variables HASTA ARRIBA de tu código, junto a 'let stateUnsubscribe = null;'
+        // 💡 VARIABLES GLOBALES DE CONEXIÓN
         let salesUnsubscribe = null; 
         let ordersUnsubscribe = null;
 
         function loadFromStorage(branchId) {
             return new Promise((resolve) => {
                 if (stateUnsubscribe) stateUnsubscribe();
-                if (salesUnsubscribe) salesUnsubscribe(); // Apagar conexión de ventas vieja
+                if (salesUnsubscribe) salesUnsubscribe(); 
                 if (ordersUnsubscribe) ordersUnsubscribe();
                 
                 currentBranch = branchId;
@@ -690,7 +704,6 @@ function clearAllNotifications() {
                     if (doc.exists) {
                         const incomingData = doc.data();
                         
-                        // Rescatamos los datos que manejamos por separado para que no se borren
                         const currentSales = state.sales || []; 
                         const currentOrders = state.orders || [];
                         const currentInvMovs = state.inventoryMovements || [];
@@ -701,7 +714,6 @@ function clearAllNotifications() {
                         state.inventoryMovements = currentInvMovs;
 
                         if (currentUser) {
-                            // Actualizamos notificaciones y UI pero sin forzar renders si no es necesario
                             updateNotificationBadge();
                             if(currentView === 'inventory' || currentView === 'products' || currentView === 'settings') {
                                  renderView(currentView);
@@ -729,13 +741,13 @@ function clearAllNotifications() {
                         state.orders = [];
                         snapshot.forEach(doc => state.orders.push(doc.data()));
                         
-                        // Si hay un nuevo pedido y estoy en cocina, suena la campana
                         if (!isFirstLoad && currentUser && currentUser.role === 'kitchen' && newOrdersCount > oldOrdersCount) {
                             playKitchenBell();
                         }
                         
-                        // Refrescar pantallas de alta interacción
-                        if(!isFirstLoad && (currentView === 'pos' || currentView === 'waiter' || currentView === 'kitchen' || currentView === 'orders' || currentView === 'dashboard' || currentView === 'myorders')) {
+                        // 💡 SOLUCIÓN: SIEMPRE actualizar la pantalla visualmente cuando llegan los datos,
+                        // para quitar el color "gris" de las mesas que se acaba de cargar.
+                        if (currentUser && (currentView === 'pos' || currentView === 'waiter' || currentView === 'kitchen' || currentView === 'orders' || currentView === 'dashboard' || currentView === 'myorders')) {
                             renderView(currentView);
                         }
                         isFirstLoad = false;
@@ -752,7 +764,6 @@ function clearAllNotifications() {
                         state.sales = [];
                         snapshot.forEach(doc => state.sales.push(doc.data()));
                         
-                        // Refrescar gráficas o historial si alguien hace una venta en otra tablet
                         if(!isFirstLoad && (currentView === 'dashboard' || currentView === 'tickethistory' || currentView === 'reports' || currentView === 'cashregister')) {
                             renderView(currentView);
                         }
@@ -959,14 +970,26 @@ function clearAllNotifications() {
                 currentUser = JSON.parse(savedUser);
                 currentBranch = savedBranch;
                 const branchLabel = document.getElementById('headerBranchName');
-if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal' ? 'Principal' : 'Centro';
+                if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal' ? 'Principal' : 'Centro';
                 
-                // Conectar directamente a la sucursal guardada
                 await loadFromStorage(currentBranch); 
+
+                // 🔄 RESTAURACIÓN DE PROGRESO (Anti-Recarga)
+                const backupCart = localStorage.getItem('pizzamania_backup_cart');
+                if (backupCart) {
+                    currentCart = JSON.parse(backupCart);
+                }
+
+                const activeTableId = localStorage.getItem('pizzamania_active_table');
                 
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('mainApp').classList.remove('hidden');
                 initMainApp();
+
+                // Si estaba en una mesa, se la abrimos de nuevo automáticamente
+                if (activeTableId && (currentUser.role === 'waiter' || currentUser.role === 'admin' || currentUser.role === 'cashier')) {
+                    setTimeout(() => selectTable(parseInt(activeTableId), currentCart.length > 0), 500);
+                }
                 
                 const loadingScreen = document.getElementById('loadingScreen');
                 if (loadingScreen) loadingScreen.classList.add('hidden');
@@ -2030,24 +2053,25 @@ if (branchLabel) branchLabel.textContent = currentBranch === 'sucursal_principal
         }
 
         function updateCartDisplay() {
-    const cartItemsEl = document.getElementById('cartItems');
-    const subtotalEl = document.getElementById('cartSubtotal');
-    const totalEl = document.getElementById('cartTotal');
-    
-    // 1. Buscamos los botones de pago por su nuevo ID
-    const btnCash = document.getElementById('btnPayCash');
-    const btnTransfer = document.getElementById('btnPayTransfer');
+            const cartItemsEl = document.getElementById('cartItems');
+            const subtotalEl = document.getElementById('cartSubtotal');
+            const totalEl = document.getElementById('cartTotal');
+            
+            const btnCash = document.getElementById('btnPayCash');
+            const btnTransfer = document.getElementById('btnPayTransfer');
 
-    if (cartItemsEl) cartItemsEl.innerHTML = renderCartItems();
-    const total = calculateCartTotal();
-    if (subtotalEl) subtotalEl.textContent = `$${total.toLocaleString()}`;
-    if (totalEl) totalEl.textContent = `$${total.toLocaleString()}`;
+            if (cartItemsEl) cartItemsEl.innerHTML = renderCartItems();
+            const total = calculateCartTotal();
+            if (subtotalEl) subtotalEl.textContent = `$${total.toLocaleString()}`;
+            if (totalEl) totalEl.textContent = `$${total.toLocaleString()}`;
 
-    // 2. Comprobamos si hay productos y actualizamos los botones
-    const hasItems = currentCart.length > 0;
-    if (btnCash) btnCash.disabled = !hasItems;
-    if (btnTransfer) btnTransfer.disabled = !hasItems;
-}
+            const hasItems = currentCart.length > 0;
+            if (btnCash) btnCash.disabled = !hasItems;
+            if (btnTransfer) btnTransfer.disabled = !hasItems;
+
+            // 💾 RESPALDO AUTOMÁTICO: Guarda el carrito para que no se borre al recargar
+            localStorage.setItem('pizzamania_backup_cart', JSON.stringify(currentCart));
+        }
 // ==================== PROCESAMIENTO DE PAGOS (MOSTRADOR Y MESAS) ====================
 function processPayment(method) {
             if (currentCart.length === 0) {
@@ -2325,21 +2349,25 @@ function processPayment(method) {
         }
 
         // ==================== CERRAR MODALES (VERSIÓN BLINDADA) ====================
+    // ==================== CERRAR MODALES (VERSIÓN BLINDADA) ====================
     function closeModal() {
-        // 1. Ocultamos y limpiamos la ventana principal del ticket/modal
-        const modal = document.getElementById('modalContainer');
-        if (modal) {
-            modal.classList.add('hidden');
-            modal.innerHTML = ''; // Esto evita que las ventanas se queden congeladas en memoria
+            // 1. Ocultamos y limpiamos la ventana principal del ticket/modal
+            const modal = document.getElementById('modalContainer');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.innerHTML = ''; // Esto evita que las ventanas se queden congeladas en memoria
+            }
+            
+            // 2. Destruimos la capa flotante de WhatsApp por si se quedó abierta
+            const waOverlay = document.getElementById('waPromptOverlay');
+            if (waOverlay) waOverlay.remove();
+            
+            // 3. Devolvemos el scroll a la página principal por si se había bloqueado
+            document.body.style.overflow = '';
+
+            // 💡 4. SOLUCIÓN: Borramos la memoria de la mesa activa para que NO reaparezca al recargar la página
+            localStorage.removeItem('pizzamania_active_table');
         }
-        
-        // 2. Destruimos la capa flotante de WhatsApp por si se quedó abierta
-        const waOverlay = document.getElementById('waPromptOverlay');
-        if (waOverlay) waOverlay.remove();
-        
-        // 3. Devolvemos el scroll a la página principal por si se había bloqueado
-        document.body.style.overflow = '';
-    }
 
         // ==================== KITCHEN MODULE ====================
         // ==================== KITCHEN MODULE ====================
@@ -2444,17 +2472,28 @@ function processPayment(method) {
             const endTime = order.statusUpdatedAt ? new Date(order.statusUpdatedAt) : new Date();
             const waitTime = Math.floor((endTime - new Date(order.createdAt)) / 60000);
 
-            const kitchenItems = order.items.filter(item => {
+            // 💡 NUEVA LÓGICA: Filtramos lo que ya se entregó en vueltas anteriores
+            const kitchenItems = [];
+            order.items.forEach(item => {
                 const prod = state.products.find(p => p.id === item.productId);
-                if (!prod) return true;
+                if (!prod) return;
                 const cat = prod.category ? prod.category.toLowerCase() : '';
-                return cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida';
+                
+                if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
+                    // Restamos lo que ya se entregó antes
+                    const unDeliveredQty = item.quantity - (item.deliveredQty || 0);
+                    
+                    if (isHistory || unDeliveredQty > 0) {
+                        kitchenItems.push({ 
+                            ...item, 
+                            displayQty: isHistory ? item.quantity : unDeliveredQty,
+                            isNew: !isHistory && (item.quantity - (item.printedQty || 0)) > 0
+                        });
+                    }
+                }
             });
 
-            // 💡 CEREBRO DE AGREGADOS: Detectamos si hay cosas nuevas a mitad de cuenta
-            const orderAlreadyPrinted = order.items.some(i => (i.printedQty || 0) > 0);
-            const hasNewAgregados = !isHistory && orderAlreadyPrinted && order.items.some(i => (i.quantity - (i.printedQty || 0)) > 0);
-
+            const hasNewAgregados = kitchenItems.some(i => i.isNew);
             const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
 
             return `
@@ -2472,24 +2511,18 @@ function processPayment(method) {
                         </span>
                     </div>
                     <div class="space-y-2 mb-4 flex-1">
-                        ${kitchenItems.length > 0 ? kitchenItems.map(item => {
-                            // 💡 MAGIA VISUAL: Resaltar solo el producto específico que es nuevo
-                            const unprintedQty = item.quantity - (item.printedQty || 0);
-                            const isThisItemNew = hasNewAgregados && unprintedQty > 0;
-                            
-                            return `
-                            <div class="flex flex-col text-sm p-2 rounded-lg ${isThisItemNew ? 'bg-orange-50 border border-orange-300' : 'bg-theme-bg border border-theme-beige'} text-theme-text font-medium transition-colors">
+                        ${kitchenItems.length > 0 ? kitchenItems.map(item => `
+                            <div class="flex flex-col text-sm p-2 rounded-lg ${item.isNew ? 'bg-orange-50 border border-orange-300' : 'bg-theme-bg border border-theme-beige'} text-theme-text font-medium transition-colors">
                                 <div class="flex justify-between items-start">
                                     <div>
-                                        <strong class="${isThisItemNew ? 'text-orange-700' : 'text-theme-greenDark'} mr-1">${item.quantity}x</strong> 
-                                        <span class="${isThisItemNew ? 'text-orange-900 font-bold' : ''}">${item.name}</span>
+                                        <strong class="${item.isNew ? 'text-orange-700' : 'text-theme-greenDark'} mr-1">${item.displayQty}x</strong> 
+                                        <span class="${item.isNew ? 'text-orange-900 font-bold' : ''}">${item.name}</span>
                                     </div>
-                                    ${isThisItemNew ? `<span class="text-[10px] font-black text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded shadow-sm">+${unprintedQty} Nuevo</span>` : ''}
+                                    ${item.isNew ? `<span class="text-[10px] font-black text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded shadow-sm">Nuevo</span>` : ''}
                                 </div>
                                 ${item.note ? `<div class="text-xs text-red-600 font-bold mt-1 bg-red-50 p-1 rounded border border-red-100 flex gap-1"><span>⚠️</span> <span>${item.note}</span></div>` : ''}
                             </div>
-                            `;
-                        }).join('') : '<p class="text-xs text-blue-600 font-bold text-center py-3 bg-blue-50 rounded-lg border border-blue-200">🥤 Solo bebidas (Barra)</p>'}
+                        `).join('') : '<p class="text-xs text-blue-600 font-bold text-center py-3 bg-blue-50 rounded-lg border border-blue-200">🥤 Solo bebidas (Barra)</p>'}
                     </div>
                     <div class="flex items-center justify-between mt-auto border-t border-theme-beige pt-3">
                         
@@ -2531,10 +2564,15 @@ function processPayment(method) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            // Actualizamos el estado de la orden
             order.status = newStatus;
 
-            // ❌ ELIMINADO: Ya no se libera la mesa automáticamente al entregar.
+            // 🌟 MAGIA: Si se entrega el pedido, congelamos los productos para que no repitan
+            if (newStatus === 'delivered') {
+                order.items.forEach(item => {
+                    item.deliveredQty = item.quantity;
+                    item.printedQty = item.quantity; // Por si olvidaron imprimir el ticket
+                });
+            }
 
             saveToStorage();
             
@@ -2737,6 +2775,10 @@ function processPayment(method) {
         function selectTable(tableId, keepCartOpen = false) {
             window.isMobileCartOpen = keepCartOpen; 
             selectedTable = tableId;
+            
+            // 💾 Recordar qué mesa está viendo el mesero
+            localStorage.setItem('pizzamania_active_table', tableId);
+
             const table = state.tables.find(t => t.id === tableId);
             
             // MAGIA: Ahora la orden sigue viva hasta que la PAGUEN (no cuando la entreguen)
@@ -5236,7 +5278,6 @@ function saveNewProduct() {
         async function executeDeleteOrder(orderId) {
             const pwdInput = document.getElementById('adminAuthPassword').value;
             
-            // Verificación de la clave maestra solicitada
             if (pwdInput !== '726188') {
                 showToast('Contraseña incorrecta', 'error');
                 const inputEl = document.getElementById('adminAuthPassword');
@@ -5245,16 +5286,14 @@ function saveNewProduct() {
                 return;
             }
 
-            // 1. Restaurar Inventario y Liberar Mesa para que no quede basura operativa
+            // 1. Restaurar Inventario y Liberar Mesa 
             const orderToRest = state.orders.find(o => o.id === orderId);
             if (orderToRest) {
-                // Liberar la mesa
                 if (orderToRest.tableId && orderToRest.status !== 'delivered' && orderToRest.status !== 'cancelled') {
                     const table = state.tables.find(t => t.id === orderToRest.tableId);
-                    if (table) table.status = 'available'; // O 'free' dependiendo de tu versión
+                    if (table) table.status = 'free'; 
                 }
                 
-                // Devolver insumos al stock general
                 orderToRest.items.forEach(cartItem => {
                     const product = state.products.find(p => p.id === cartItem.productId);
                     if (product && product.ingredients) {
@@ -5266,40 +5305,39 @@ function saveNewProduct() {
                 });
             }
 
-            // 2. Erradicar de la lista de Pedidos temporales (Lo desaparece de Cocina y Meseros)
-            state.orders = state.orders.filter(o => o.id !== orderId);
-
-            // 3. 🚀 NUEVO: ERRADICAR DEL ARCHIVERO INFINITO DE FIREBASE
-            const saleToDelete = state.sales.find(s => s.orderId === orderId);
-            if (saleToDelete) {
-                try {
-                    // Vamos a la carpeta específica en la nube y lo pulverizamos
-                    await db.collection('pizzaManager').doc(currentBranch)
-                        .collection('sales').doc(saleToDelete.id.toString()).delete();
-                } catch (error) {
-                    console.error("Error al borrar el ticket de la nube:", error);
+            try {
+                // 2. Erradicar explícitamente de la lista de Pedidos vivos en Firebase
+                await db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(orderId.toString()).delete();
+                
+                // 3. 🚀 ERRADICAR DEL ARCHIVERO INFINITO DE FIREBASE
+                const saleToDelete = state.sales.find(s => s.orderId === orderId);
+                if (saleToDelete) {
+                    await db.collection('pizzaManager').doc(currentBranch).collection('sales').doc(saleToDelete.id.toString()).delete();
                 }
-            }
-            
-            // Limpiar también de la memoria visual de la pantalla actual
-            state.sales = state.sales.filter(s => s.orderId !== orderId);
+                
+                // Limpiar de la memoria visual
+                state.orders = state.orders.filter(o => o.id !== orderId);
+                state.sales = state.sales.filter(s => s.orderId !== orderId);
 
-            // 4. Erradicar movimientos de caja asociados a este ticket
-            if (state.cashRegister && state.cashRegister.movements) {
-                state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
-            }
+                // 4. Erradicar movimientos de caja asociados a este ticket
+                if (state.cashRegister && state.cashRegister.movements) {
+                    state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
+                }
 
-            // 5. Guardar y Notificar
-            logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
-            saveToStorage(); // Guarda el esqueleto (caja, inventario, etc.)
-            
-            showToast('✅ Pedido erradicado de todas las bases de datos', 'success');
-            closeModal();
-            
-            // Recargar dinámicamente la pantalla en la que estemos
-            if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
-            if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
-            if (currentView === 'reports') renderReports(document.getElementById('contentArea'));
+                // 5. Guardar el estado (Inventario devuelto y mesa libre)
+                logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
+                saveToStorage(); 
+                
+                showToast('✅ Pedido erradicado de todas las bases de datos', 'success');
+                closeModal();
+                
+                if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
+                if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
+                if (currentView === 'reports') renderReports(document.getElementById('contentArea'));
+            } catch (error) {
+                console.error("Error al borrar pedido forzado:", error);
+                showToast('Error de conexión al borrar', 'error');
+            }
         }
 
         // ==================== EXISTING ORDER PAYMENT LOGIC ====================
@@ -7420,19 +7458,15 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-   // ==================== TICKET DE COCINA INTELIGENTE (COMANDERO) ====================
-   function printKitchenTicket(orderId, tableId = null) {
+        // ==================== TICKET DE COCINA INTELIGENTE (MESAS) ====================
+        function printKitchenTicket(orderId, tableId = null) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            let isReprint = false;
             let itemsToPrint = [];
 
             order.items.forEach(item => {
                 const prod = state.products.find(p => p.id === item.productId);
-                
-                // 💡 SOLUCIÓN: Si el producto no se encuentra (porque es un Mitad y Mitad virtual), 
-                // lo tratamos forzosamente como 'pizza' para que no lo salte.
                 const cat = prod && prod.category ? prod.category.toLowerCase() : 'pizza';
                 
                 if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
@@ -7443,24 +7477,13 @@ function payExistingOrder(orderId, method) {
                 }
             });
 
+            // 🚫 ELIMINAMOS EL AUTO-REPRINT: Si no hay nuevos platos, no imprime basura
             if (itemsToPrint.length === 0) {
-                isReprint = true;
-                order.items.forEach(item => {
-                    const prod = state.products.find(p => p.id === item.productId);
-                    const cat = prod && prod.category ? prod.category.toLowerCase() : 'pizza';
-                    if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
-                        itemsToPrint.push(item);
-                    }
-                });
+                showToast('No hay platillos nuevos pendientes de imprimir', 'info');
+                return; 
             }
 
-            let headerTitle = "COCINA";
-            if (isReprint) {
-                headerTitle = "REIMPRESIÓN";
-            } else if (order.items.some(i => (i.printedQty || 0) > 0)) {
-                headerTitle = "NUEVO AGREGADO";
-            }
-
+            const headerTitle = order.items.some(i => (i.printedQty || 0) > 0) ? "NUEVO AGREGADO" : "COCINA";
             const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
 
             const modal = document.getElementById('modalContainer');
@@ -7483,14 +7506,14 @@ function payExistingOrder(orderId, method) {
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
-                            ${itemsToPrint.length > 0 ? itemsToPrint.map(item => `
+                            ${itemsToPrint.map(item => `
                                 <div class="flex flex-col items-center justify-center mb-2 font-bold text-black border-b border-gray-300 pb-3 text-center w-full">
                                     <span class="font-black text-xl leading-tight">
                                         ${item.quantity}x ${item.name.toUpperCase()}
                                     </span>
                                     ${item.note ? `<span style="font-size:14px; font-weight:900; padding:2px 6px; display:inline-block; border:2px solid black; margin-top:6px; border-radius:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
                                 </div>
-                            `).join('') : '<div class="text-center py-4 font-black text-[14px] border-b border-gray-300">SOLO BEBIDAS</div>'}
+                            `).join('')}
                         </div>
 
                         <div class="text-center mt-5 pt-3 border-t-2 border-dashed border-black text-[12px] font-black text-black">
@@ -7518,13 +7541,11 @@ function payExistingOrder(orderId, method) {
             modal.classList.remove('hidden');
         }
 
-       
-    // ==================== COMANDA DE COCINA (VERSIÓN PUNTO DE VENTA) ====================
-    function printKitchenTicketFromPOS(orderId, saleId) {
+        // ==================== COMANDA DE COCINA (VERSIÓN PUNTO DE VENTA) ====================
+        function printKitchenTicketFromPOS(orderId, saleId) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
 
-            let isReprint = false;
             let itemsToPrint = [];
 
             order.items.forEach(item => {
@@ -7539,24 +7560,13 @@ function payExistingOrder(orderId, method) {
                 }
             });
 
+            // 🚫 ELIMINAMOS EL AUTO-REPRINT AQUI TAMBIÉN
             if (itemsToPrint.length === 0) {
-                isReprint = true;
-                order.items.forEach(item => {
-                    const prod = state.products.find(p => p.id === item.productId);
-                    const cat = prod && prod.category ? prod.category.toLowerCase() : 'pizza';
-                    if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
-                        itemsToPrint.push(item);
-                    }
-                });
+                showToast('No hay platillos nuevos para imprimir', 'info');
+                return;
             }
 
-            let headerTitle = "COCINA";
-            if (isReprint) {
-                headerTitle = "REIMPRESIÓN";
-            } else if (order.items.some(i => (i.printedQty || 0) > 0)) {
-                headerTitle = "NUEVO AGREGADO";
-            }
-
+            const headerTitle = order.items.some(i => (i.printedQty || 0) > 0) ? "NUEVO AGREGADO" : "COCINA";
             const tableNameDisplay = order.type === 'table' ? (order.tableName ? order.tableName.toUpperCase() : `MESA ${order.tableId}`) : 'MOSTRADOR';
 
             const modal = document.getElementById('modalContainer');
@@ -7579,14 +7589,14 @@ function payExistingOrder(orderId, method) {
                             <div class="font-black border-b-2 border-black pb-1 mb-2 text-center text-[14px]">
                                 CANT. / DESCRIPCIÓN
                             </div>
-                            ${itemsToPrint.length > 0 ? itemsToPrint.map(item => `
+                            ${itemsToPrint.map(item => `
                                 <div class="flex flex-col items-center justify-center mb-2 font-bold text-black border-b border-gray-300 pb-3 text-center w-full">
                                     <span class="font-black text-xl leading-tight">
                                         ${item.quantity}x ${item.name.toUpperCase()}
                                     </span>
                                     ${item.note ? `<span style="font-size:14px; font-weight:900; padding:2px 6px; display:inline-block; border:2px solid black; margin-top:6px; border-radius:4px;">⚠️ ${item.note.toUpperCase()}</span>` : ''}
                                 </div>
-                            `).join('') : '<div class="text-center py-4 font-black text-[14px] border-b border-gray-300">SOLO BEBIDAS</div>'}
+                            `).join('')}
                         </div>
 
                         <div class="text-center mt-5 pt-3 border-t-2 border-dashed border-black text-[12px] font-black text-black">
@@ -7606,6 +7616,8 @@ function payExistingOrder(orderId, method) {
                 </div>  
             `;
         }
+
+   
 
         // ==================== CEREBRO DE REGISTRO DE IMPRESIÓN ====================
         function executeKitchenPrint(orderId) {
