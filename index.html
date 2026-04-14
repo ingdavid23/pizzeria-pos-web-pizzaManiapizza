@@ -608,18 +608,57 @@ function clearAllNotifications() {
                 // 1. Clonamos el estado para manipularlo antes de enviarlo
                 const cleanState = { ...state };
                 
-                // 🌟 MAGIA ARQUITECTÓNICA: Borramos las ventas de este paquete. 
-                // Ya no vivirán en el documento de 1MB, vivirán en su propia colección.
+                // 🌟 MAGIA ARQUITECTÓNICA MÚLTIPLE: 
+                // Extraemos las áreas de alto tráfico para que no vivan en el documento maestro y causen "choques"
+                const activeOrders = [...(cleanState.orders || [])];
+                const invMovements = [...(cleanState.inventoryMovements || [])];
+                const activityLogs = [...(cleanState.activityLog || [])];
+                
+                // Borramos todo esto del esqueleto para que el doc principal quede súper ligero
                 delete cleanState.sales;
+                delete cleanState.orders;
+                delete cleanState.inventoryMovements;
+                delete cleanState.activityLog;
                 
                 // Limpiamos las pizzas virtuales temporales
                 cleanState.products = cleanState.products.filter(p => !p.isVirtual);
                 
-                // 2. Guardamos solo el "esqueleto" (mesas, inventario, productos)
+                // 2. Guardamos el "esqueleto maestro" (mesas, inventario, productos)
                 await db.collection('pizzaManager').doc(currentBranch).set(cleanState);
+                
+                // 3. Guardamos los Pedidos Vivos (Orders) de forma independiente
+                // Usamos un 'batch' (lote) para asegurar que suban todos de golpe
+                const batch = db.batch();
+                
+                // Limpiar la subcolección de órdenes actual (borramos las viejas que ya se pagaron/cancelaron)
+                // y subimos el nuevo estado de las mesas
+                const ordersRef = db.collection('pizzaManager').doc(currentBranch).collection('orders');
+                const existingOrdersSnap = await ordersRef.get();
+                existingOrdersSnap.forEach(doc => {
+                    batch.delete(doc.ref);
+                });
+                
+                activeOrders.forEach(order => {
+                    const docRef = ordersRef.doc(order.id.toString());
+                    batch.set(docRef, order);
+                });
+                
+                // Si hay movimientos de inventario nuevos, los guardamos en su subcolección
+                if (invMovements.length > 0) {
+                     const invRef = db.collection('pizzaManager').doc(currentBranch).collection('inventoryMovements');
+                     invMovements.forEach(mov => {
+                          const movRef = invRef.doc(mov.id.toString());
+                          batch.set(movRef, mov);
+                     });
+                     // Limpiamos del estado local para que no los vuelva a subir
+                     state.inventoryMovements = []; 
+                }
+
+                await batch.commit();
+
             } catch (error) {
                 console.error("Error al guardar en Firebase:", error);
-                showToast('Error al sincronizar datos estructurales', 'error');
+                showToast('Error al sincronizar. Revisa la conexión.', 'error');
             }
         }
 
@@ -633,50 +672,76 @@ function clearAllNotifications() {
                 console.error("Error al subir el ticket a la nube:", error);
             }
         }
-        // 💡 Pon esta variable HASTA ARRIBA de tu código, junto a 'let stateUnsubscribe = null;'
+        // 💡 Pon estas variables HASTA ARRIBA de tu código, junto a 'let stateUnsubscribe = null;'
         let salesUnsubscribe = null; 
+        let ordersUnsubscribe = null;
 
         function loadFromStorage(branchId) {
             return new Promise((resolve) => {
                 if (stateUnsubscribe) stateUnsubscribe();
                 if (salesUnsubscribe) salesUnsubscribe(); // Apagar conexión de ventas vieja
+                if (ordersUnsubscribe) ordersUnsubscribe();
                 
                 currentBranch = branchId;
                 let isFirstLoad = true; 
                 
-                // 1. Conexión del Esqueleto (Mesas, Inventario)
+                // 1. Conexión del Esqueleto Maestro (Mesas, Inventario)
                 stateUnsubscribe = db.collection('pizzaManager').doc(currentBranch).onSnapshot((doc) => {
                     if (doc.exists) {
                         const incomingData = doc.data();
                         
-                        // Rescatamos las ventas que ya teníamos en memoria para que no se borren al actualizar el esqueleto
+                        // Rescatamos los datos que manejamos por separado para que no se borren
                         const currentSales = state.sales || []; 
+                        const currentOrders = state.orders || [];
+                        const currentInvMovs = state.inventoryMovements || [];
+                        
                         state = { ...DEFAULT_DATA, ...incomingData };
                         state.sales = currentSales; 
-
-                        if (!isFirstLoad && currentUser && currentUser.role === 'kitchen') {
-                            const oldOrders = state.orders ? state.orders.length : 0;
-                            const newOrders = incomingData.orders ? incomingData.orders.length : 0;
-                            if (newOrders > oldOrders) playKitchenBell();
-                        }
+                        state.orders = currentOrders;
+                        state.inventoryMovements = currentInvMovs;
 
                         if (currentUser) {
-                            renderView(currentView); 
+                            // Actualizamos notificaciones y UI pero sin forzar renders si no es necesario
                             updateNotificationBadge();
+                            if(currentView === 'inventory' || currentView === 'products' || currentView === 'settings') {
+                                 renderView(currentView);
+                            }
                         }
                     } else {
                         state = JSON.parse(JSON.stringify(DEFAULT_DATA));
                         state.sales = [];
+                        state.orders = [];
                         if (currentUser) renderView(currentView);
                     }
-                    isFirstLoad = false;
                     resolve();
                 }, (error) => {
                     console.error("Error de Firebase:", error);
                     resolve();
                 });
 
-                // 🚀 2. CONEXIÓN AL ARCHIVERO INFINITO (SOLO DESCARGA HOY)
+                // 🚀 2. CONEXIÓN A LOS PEDIDOS EN CURSO (ORDERS) - Escucha en vivo
+                ordersUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
+                    .collection('orders')
+                    .onSnapshot(snapshot => {
+                        const newOrdersCount = snapshot.docs.length;
+                        const oldOrdersCount = state.orders ? state.orders.length : 0;
+                        
+                        state.orders = [];
+                        snapshot.forEach(doc => state.orders.push(doc.data()));
+                        
+                        // Si hay un nuevo pedido y estoy en cocina, suena la campana
+                        if (!isFirstLoad && currentUser && currentUser.role === 'kitchen' && newOrdersCount > oldOrdersCount) {
+                            playKitchenBell();
+                        }
+                        
+                        // Refrescar pantallas de alta interacción
+                        if(!isFirstLoad && (currentView === 'pos' || currentView === 'waiter' || currentView === 'kitchen' || currentView === 'orders' || currentView === 'dashboard' || currentView === 'myorders')) {
+                            renderView(currentView);
+                        }
+                        isFirstLoad = false;
+                    });
+
+                // 🚀 3. CONEXIÓN AL ARCHIVERO INFINITO (SOLO DESCARGA HOY)
                 const todayStart = new Date();
                 todayStart.setHours(0,0,0,0);
                 
@@ -688,7 +753,7 @@ function clearAllNotifications() {
                         snapshot.forEach(doc => state.sales.push(doc.data()));
                         
                         // Refrescar gráficas o historial si alguien hace una venta en otra tablet
-                        if(!isFirstLoad && (currentView === 'dashboard' || currentView === 'tickethistory' || currentView === 'reports')) {
+                        if(!isFirstLoad && (currentView === 'dashboard' || currentView === 'tickethistory' || currentView === 'reports' || currentView === 'cashregister')) {
                             renderView(currentView);
                         }
                     });
@@ -5022,89 +5087,123 @@ function saveNewProduct() {
 
             const targetDateStr = window.selectedOrdersDate;
 
-            const activeOrders = state.orders.filter(o => {
-                if (!o.createdAt) return false;
-                const orderDateStr = getLocalYYYYMMDD(o.createdAt);
-                return orderDateStr === targetDateStr && o.status !== 'cancelled';
-            }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
+            // 1. Dibujamos la estructura base con un "Loading" animado
             container.innerHTML = `
-                <div class="animate-slideIn">
-                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 border-b border-theme-beige pb-4 gap-4">
+                <div class="animate-slideIn h-full flex flex-col">
+                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 border-b border-theme-beige pb-4 gap-4 shrink-0">
                         
                         <div class="flex items-center gap-3">
                             <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📋 Historial de Pedidos</h2>
-                            <span class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
-                                ${activeOrders.length} tickets
+                            <span id="ordersCountBadge" class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
+                                Cargando...
                             </span>
                         </div>
                         
                         <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-theme-beige shadow-sm">
                             <span class="text-xl">📅</span>
-                            <input type="date" id="ordersDatePicker" value="${window.selectedOrdersDate}" 
+                            <input type="date" id="ordersDatePicker" value="${targetDateStr}" 
                                 onchange="changeOrdersDate(this.value)"
                                 class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
                             
-                            ${window.selectedOrdersDate !== todayLocalStr ? 
+                            ${targetDateStr !== todayLocalStr ? 
                                 `<button onclick="changeOrdersDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
                             : ''}
                         </div>
                         
                     </div>
                     
-                    <div class="space-y-4">
-                        ${activeOrders.map(order => {
-                            // 💡 SOLUCIÓN:
-                            const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
-                            return `
-                            <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
-                                <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
-                                    <div class="flex items-center gap-3 flex-wrap">
-                                        <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
-                                        <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
-                                            ${tableNameDisplay}
-                                        </span>
-                                        <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
-                                        
-                                        <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
-                                            ${order.paymentStatus === 'paid' ? '✅ Pagado' : '⏳ Pendiente Pago'}
-                                        </span>
-                                    </div>
-                                    <div class="text-left md:text-right">
-                                        <p class="font-extrabold text-xl text-theme-greenDark">$${order.total.toLocaleString()}</p>
-                                        <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(order.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
-                                    </div>
-                                </div>
-                                <div class="flex flex-wrap gap-2 text-sm font-medium mt-3 border-t border-theme-beige pt-3">
-                                    ${order.items.map(i => `<span class="px-3 py-1 rounded-lg bg-theme-bg border border-theme-beige text-theme-text"><strong class="text-theme-greenDark">${i.quantity}x</strong> ${i.name}</span>`).join('')}
-                                </div>
-                                
-                                <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-theme-beige w-full justify-end">
-                                    ${order.paymentStatus !== 'paid' ? `
-                                        <button onclick="printPreCheck(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-theme-text hover:bg-gray-200 border border-gray-300 transition shadow-sm flex items-center gap-2">
-                                            🖨️ Ver Pre-Cuenta
-                                        </button>
-                                    ` : ''}
-
-                                    ${order.status === 'delivered' && order.paymentStatus !== 'paid' ? `
-                                        <button onclick="payExistingOrder(${order.id}, 'cash')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-green-500 text-white hover:bg-green-600 transition shadow-sm flex items-center gap-2">
-                                            💵 Cobrar Efectivo
-                                        </button>
-                                        <button onclick="payExistingOrder(${order.id}, 'transfer')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition shadow-sm flex items-center gap-2">
-                                            📱 Cobrar Transferencia
-                                        </button>
-                                    ` : ''}
-                                    
-                                    <button onclick="showDeleteOrderAuthModal(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 transition shadow-sm flex items-center gap-2 ml-auto">
-                                        🗑️ Eliminar
-                                    </button>
-                                </div>
-                            </div>
-                            `;
-                        }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>'}
+                    <div id="ordersListContainer" class="space-y-4 flex-1 overflow-y-auto scrollbar-thin pr-2 relative">
+                        <div class="absolute inset-0 flex flex-col items-center justify-center animate-pulse">
+                            <div class="text-4xl mb-3">☁️</div>
+                            <p class="text-theme-greenDark font-bold text-lg">Descargando pedidos de la nube...</p>
+                        </div>
                     </div>
                 </div>
             `;
+
+            // 2. Limpiar cualquier conexión vieja para no cruzar datos de otros días
+            if (window.ordersHistoryUnsubscribe) window.ordersHistoryUnsubscribe();
+
+            // 3. Crear el rango de tiempo del día seleccionado en el calendario
+            const start = new Date(targetDateStr + 'T00:00:00').toISOString();
+            const end = new Date(targetDateStr + 'T23:59:59').toISOString();
+
+            // 4. CONEXIÓN INTELIGENTE A LA NUBE (Busca el día exacto)
+            window.ordersHistoryUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
+                .collection('orders')
+                .where('createdAt', '>=', start)
+                .where('createdAt', '<=', end)
+                .onSnapshot(snapshot => {
+                    const listContainer = document.getElementById('ordersListContainer');
+                    if (!listContainer) return;
+
+                    const activeOrders = [];
+                    snapshot.forEach(doc => {
+                        const o = doc.data();
+                        if (o.status !== 'cancelled') activeOrders.push(o);
+                    });
+
+                    // Ordenar del más reciente al más antiguo
+                    activeOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                    // Actualizar el "badge" de cantidad de tickets
+                    const badge = document.getElementById('ordersCountBadge');
+                    if (badge) badge.textContent = `${activeOrders.length} tickets`;
+
+                    // Inyectar el HTML con los resultados
+                    listContainer.innerHTML = activeOrders.map(order => {
+                        const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+                        return `
+                        <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+                            <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
+                                    <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
+                                        ${tableNameDisplay}
+                                    </span>
+                                    <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
+                                    
+                                    <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
+                                        ${order.paymentStatus === 'paid' ? '✅ Pagado' : '⏳ Pendiente Pago'}
+                                    </span>
+                                </div>
+                                <div class="text-left md:text-right">
+                                    <p class="font-extrabold text-xl text-theme-greenDark">$${order.total.toLocaleString()}</p>
+                                    <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(order.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2 text-sm font-medium mt-3 border-t border-theme-beige pt-3">
+                                ${order.items.map(i => `<span class="px-3 py-1 rounded-lg bg-theme-bg border border-theme-beige text-theme-text"><strong class="text-theme-greenDark">${i.quantity}x</strong> ${i.name}</span>`).join('')}
+                            </div>
+                            
+                            <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-theme-beige w-full justify-end">
+                                ${order.paymentStatus !== 'paid' ? `
+                                    <button onclick="printPreCheck(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-theme-text hover:bg-gray-200 border border-gray-300 transition shadow-sm flex items-center gap-2">
+                                        🖨️ Ver Pre-Cuenta
+                                    </button>
+                                ` : ''}
+
+                                ${order.status === 'delivered' && order.paymentStatus !== 'paid' ? `
+                                    <button onclick="payExistingOrder(${order.id}, 'cash')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-green-500 text-white hover:bg-green-600 transition shadow-sm flex items-center gap-2">
+                                        💵 Cobrar Efectivo
+                                    </button>
+                                    <button onclick="payExistingOrder(${order.id}, 'transfer')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition shadow-sm flex items-center gap-2">
+                                        📱 Cobrar Transferencia
+                                    </button>
+                                ` : ''}
+                                
+                                <button onclick="showDeleteOrderAuthModal(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 transition shadow-sm flex items-center gap-2 ml-auto">
+                                    🗑️ Eliminar
+                                </button>
+                            </div>
+                        </div>
+                        `;
+                    }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>';
+                }, error => {
+                    console.error("Error al descargar pedidos pasados:", error);
+                    const listContainer = document.getElementById('ordersListContainer');
+                    if (listContainer) listContainer.innerHTML = '<p class="text-red-500 text-center py-12 font-bold">Error de conexión con la nube.</p>';
+                });
         }
         // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
         function showDeleteOrderAuthModal(orderId) {
