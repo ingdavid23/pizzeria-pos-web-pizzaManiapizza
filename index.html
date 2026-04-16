@@ -4277,6 +4277,100 @@ function saveNewProduct() {
             renderProductSizes();
         }
 
+        // ==================== GESTIÓN DE RECETAS (INGREDIENTES) ====================
+        function renderRecipeItems() {
+            const container = document.getElementById('recipeItemsContainer');
+            if (!container) return;
+            
+            if (currentEditIngredients.length === 0) {
+                container.innerHTML = '<p class="text-xs text-theme-textMuted text-center py-3 italic border border-dashed border-theme-beige rounded-xl">Sin insumos. No se descontará nada del inventario al vender.</p>';
+                return;
+            }
+
+            container.innerHTML = currentEditIngredients.map((ing, index) => {
+                const invItem = state.inventory.find(i => i.id === parseInt(ing.id));
+                const name = invItem ? invItem.name : 'Insumo desconocido';
+                const unit = invItem ? invItem.unit : '';
+                
+                // Mostrar la cantidad calculada si se usó gramos/milis
+                let displayQty = ing.qty;
+                let displayUnit = unit;
+                
+                if (ing.originalUnit && ing.originalUnit !== 'auto') {
+                    displayQty = ing.originalQty;
+                    displayUnit = ing.originalUnit;
+                }
+
+                return `
+                    <div class="flex items-center justify-between p-2 rounded-lg bg-white border border-theme-beige shadow-sm">
+                        <span class="text-sm font-bold text-theme-text flex-1 truncate pr-2">🧊 ${name}</span>
+                        <div class="flex items-center gap-3 shrink-0">
+                            <span class="text-sm font-extrabold text-theme-greenDark">${displayQty} <span class="text-[10px] font-normal text-theme-textMuted uppercase">${displayUnit}</span></span>
+                            <button onclick="removeIngredientFromRecipe(${index})" class="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition text-lg" title="Quitar insumo">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function addIngredientToRecipe() {
+            const selectEl = document.getElementById('recipeIngredientSelect');
+            const qtyEl = document.getElementById('recipeIngredientQty');
+            const unitEl = document.getElementById('recipeIngredientUnit');
+
+            const invId = parseInt(selectEl.value);
+            let qty = parseFloat(qtyEl.value);
+            const unitChoice = unitEl.value;
+
+            if (!invId || isNaN(qty) || qty <= 0) {
+                showToast('Selecciona un insumo y escribe una cantidad válida', 'warning');
+                return;
+            }
+
+            const invItem = state.inventory.find(i => i.id === invId);
+            if (!invItem) return;
+
+            let finalQty = qty;
+            
+            // 🧠 CONVERSIÓN INTELIGENTE: Si meten gramos pero el inventario está en kilos, lo dividimos entre 1000
+            if (unitChoice === 'g' && invItem.unit === 'kg') {
+                finalQty = qty / 1000;
+            } else if (unitChoice === 'ml' && invItem.unit === 'lt') {
+                finalQty = qty / 1000;
+            } else if (unitChoice !== 'auto' && unitChoice !== invItem.unit) {
+                showToast('La unidad elegida no coincide con la base del inventario', 'info');
+            }
+
+            // Revisar si el ingrediente ya estaba en la lista para sumarlo en lugar de duplicarlo
+            const existingIndex = currentEditIngredients.findIndex(i => i.id === invId);
+            
+            if (existingIndex > -1) {
+                currentEditIngredients[existingIndex].qty += finalQty;
+                currentEditIngredients[existingIndex].originalQty = (currentEditIngredients[existingIndex].originalQty || 0) + qty;
+            } else {
+                currentEditIngredients.push({
+                    id: invId,
+                    qty: finalQty, // Cantidad final en la unidad matemática real (ej. 0.2 kg)
+                    originalQty: qty, // Cantidad visual para el usuario (ej. 200 g)
+                    originalUnit: unitChoice
+                });
+            }
+
+            // Limpiar los campos para poder agregar otro rápido
+            selectEl.value = '';
+            qtyEl.value = '';
+            unitEl.value = 'auto';
+
+            // Dibujar la nueva lista
+            renderRecipeItems();
+            showToast('Insumo agregado a la receta', 'success');
+        }
+
+        function removeIngredientFromRecipe(index) {
+            currentEditIngredients.splice(index, 1);
+            renderRecipeItems();
+        }
+
         function editProduct(productId) {
             initProductCategories();
             const product = state.products.find(p => p.id === productId);
@@ -4426,6 +4520,28 @@ function saveNewProduct() {
                 </div>
             `;
             modal.classList.remove('hidden');
+        }
+
+        // ==================== OCULTAR / ACTIVAR PRODUCTOS ====================
+        function toggleProductActive(productId) {
+            const product = state.products.find(p => p.id === productId);
+            if (!product) return;
+
+            // Cambia el estado al contrario del actual (Si es true pasa a false, y viceversa)
+            product.active = !product.active;
+            
+            // Guardamos el cambio
+            logActivity('PRODUCT_TOGGLE', `Producto ${product.name} marcado como ${product.active ? 'Activo' : 'Oculto'}`);
+            saveToStorage();
+            
+            if (typeof syncMenuToBranches === 'function') syncMenuToBranches();
+            
+            showToast(`Producto ${product.active ? 'activado' : 'ocultado'} del menú`, 'success');
+            
+            // Recargamos la vista para que el botón cambie de color
+            if (currentView === 'products') {
+                renderProducts(document.getElementById('contentArea'));
+            }
         }
 
         
