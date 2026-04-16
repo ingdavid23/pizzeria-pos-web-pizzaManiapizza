@@ -2160,7 +2160,7 @@ function processPayment(method) {
                             <p class="text-[10px] uppercase font-bold print:leading-tight">11a. Calle Pte. No 62. C.P 30068</p>
                             <p class="text-[10px] uppercase font-bold print:leading-tight">Comitán de Domínguez, Chis.</p>
                             <p class="text-[10px] mt-1 font-bold">${new Date(sale.timestamp).toLocaleString('es-MX')}</p>
-                            <p class="text-[12px] mt-1 font-black">TICKET #${sale.orderId.toString().slice(-4)}</p>
+                            <p class="text-[12px] mt-1 font-black">TICKET #${(sale.folio || "S/F")}</p>
                         </div>
 
                         <div class="space-y-2 mb-4 text-[11px] leading-tight">
@@ -2285,7 +2285,7 @@ function processPayment(method) {
             msg += `11a. Calle Pte. No 62. C.P 30068\n`;
             msg += `Comitán de Domínguez, Chis.\n`;
             msg += `--------------------------------------\n`;
-            msg += `*Ticket #:* ${sale.orderId.toString().slice(-4)}\n`;
+            msg += `*Ticket #:* ${(sale.folio || "S/F")}\n`;
             msg += `*Fecha:* ${new Date(sale.timestamp).toLocaleString('es-MX')}\n`;
             msg += `--------------------------------------\n`;
             
@@ -2500,7 +2500,7 @@ function processPayment(method) {
                 <div class="bg-white rounded-2xl p-4 flex flex-col border border-white shadow-sm ${isHistory ? 'opacity-80 border-l-4 border-l-green-400 bg-theme-bg' : 'card-hover'} ${!isHistory && waitTime > 15 && !hasNewAgregados ? 'border-2 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : ''} ${!isHistory && waitTime > 10 && waitTime <= 15 && !hasNewAgregados ? 'border-2 border-yellow-400' : ''} ${hasNewAgregados ? 'border-2 border-orange-400 shadow-[0_0_15px_rgba(243,167,13,0.3)]' : ''}">
                     <div class="flex items-center justify-between mb-3">
                         <div class="flex items-center flex-wrap gap-1">
-                            <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
+                            <span class="text-xl font-extrabold text-theme-text">#${(order.folio || "S/F")}</span>
                             <span class="ml-1 px-2 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
                                 ${tableNameDisplay}
                             </span>
@@ -3043,13 +3043,17 @@ function processPayment(method) {
                 }
                 const table = state.tables.find(t => t.id === tableId);
                 
-                // 💡 SOLUCIÓN: Buscamos cualquier orden activa (Sin pagar ni cancelar)
-                // Ya no excluimos las 'delivered', para que los postres/extras se sumen a la misma cuenta
+                // 👇 ESTA ERA LA LÍNEA MÁGICA QUE FALTABA 👇
+                // Busca si la mesa ya tiene un pedido activo (sin pagar ni cancelar)
                 let order = state.orders.find(o => o.tableId === tableId && o.paymentStatus !== 'paid' && o.status !== 'cancelled');
                 
                 if (!order) {
+                    // 💡 Calcular el siguiente folio sumando vivos y muertos
+                    const maxFolio = Math.max(0, ...state.orders.map(o => o.folio || 0), ...state.sales.map(s => s.folio || 0));
+
                     order = {
                         id: Date.now(),
+                        folio: maxFolio + 1, // 🌟 NUEVO CAMPO SECUENCIAL
                         type: 'table',
                         tableId: tableId,
                         tableName: table.name,
@@ -3107,7 +3111,7 @@ function processPayment(method) {
                 table.status = 'occupied';
 
                 try {
-                    if (typeof addNotification === 'function') addNotification(`Nueva comanda de ${table.name}`, ['cocina', 'admin']);
+                    if (typeof addNotification === 'function') addNotification(`Nueva comanda de ${table.name}`, ['kitchen', 'admin']);
                 } catch(e) {}
 
                 currentCart = [];
@@ -3152,7 +3156,7 @@ function processPayment(method) {
                             return `
                             <div class="bg-white/80 rounded-xl p-5 flex flex-col md:flex-row md:items-center justify-between shadow-sm border border-white">
                                 <div class="mb-3 md:mb-0">
-                                    <p class="font-extrabold text-theme-text text-lg">#${order.id.toString().slice(-4)} - <span class="text-theme-greenDark">${tableNameDisplay}</span></p>
+                                    <p class="font-extrabold text-theme-text text-lg">#${(order.folio || "S/F")} - <span class="text-theme-greenDark">${tableNameDisplay}</span></p>
                                     <p class="text-sm text-theme-textMuted font-medium mt-1">${order.items.map(i => `<strong>${i.quantity}x</strong> ${i.name} ${i.note ? `<span class="text-red-400 italic text-xs">(${i.note})</span>` : ''}`).join(', ')}</p>
                                     <p class="text-xs text-theme-textMuted mt-1">🕒 ${new Date(order.createdAt).toLocaleString('es-MX')}</p>
                                 </div>
@@ -3289,7 +3293,7 @@ function processPayment(method) {
                         : activeSales.map(sale => `
                             <div class="glass bg-white/80 border border-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
                                 <div>
-                                    <p class="font-extrabold text-theme-text text-lg">Ticket #${sale.orderId.toString().slice(-4)}</p>
+                                    <p class="font-extrabold text-theme-text text-lg">Ticket #${(sale.folio || "S/F")}</p>
                                     <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(sale.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
                                     <p class="text-sm font-medium mt-2 text-theme-text">${sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
                                 </div>
@@ -4726,7 +4730,7 @@ function saveNewProduct() {
                                     paymentMethod: p.method,
                                     orderId: sale.orderId,
                                     timestamp: p.timestamp || sale.timestamp,
-                                    description: `Abono a Ticket #${sale.orderId.toString().slice(-4)}`
+                                    description: `Abono a Ticket #${(sale.folio || "S/F")}`
                                 });
                             });
                         } else {
@@ -4736,7 +4740,7 @@ function saveNewProduct() {
                                 paymentMethod: sale.paymentMethod,
                                 orderId: sale.orderId,
                                 timestamp: sale.timestamp,
-                                description: `Ticket #${sale.orderId.toString().slice(-4)}`
+                                description: `Ticket #${(sale.folio || "S/F")}`
                             });
                         }
                     });
@@ -5201,7 +5205,7 @@ function saveNewProduct() {
                         <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
                             <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
                                 <div class="flex items-center gap-3 flex-wrap">
-                                    <span class="text-xl font-extrabold text-theme-text">#${order.id.toString().slice(-4)}</span>
+                                    <span class="text-xl font-extrabold text-theme-text">#${(order.folio || "S/F")}</span>
                                     <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
                                         ${tableNameDisplay}
                                     </span>
@@ -5274,8 +5278,9 @@ function saveNewProduct() {
             setTimeout(() => document.getElementById('adminAuthPassword').focus(), 100);
         }
 
-        // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
-        async function executeDeleteOrder(orderId) {
+        
+       // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
+       async function executeDeleteOrder(orderId) {
             const pwdInput = document.getElementById('adminAuthPassword').value;
             
             if (pwdInput !== '726188') {
@@ -5286,8 +5291,13 @@ function saveNewProduct() {
                 return;
             }
 
-            // 1. Restaurar Inventario y Liberar Mesa 
+            // 👇 AQUÍ ES EXACTAMENTE DONDE VA TU CÓDIGO 👇
+            // 1. RECORDAMOS QUÉ NÚMERO DE FOLIO VAMOS A BORRAR ANTES DE TOCAR NADA
             const orderToRest = state.orders.find(o => o.id === orderId);
+            const folioEliminado = orderToRest ? orderToRest.folio : null; 
+            // 👆 ========================================= 👆
+
+            // Restaurar Inventario y Liberar Mesa 
             if (orderToRest) {
                 if (orderToRest.tableId && orderToRest.status !== 'delivered' && orderToRest.status !== 'cancelled') {
                     const table = state.tables.find(t => t.id === orderToRest.tableId);
@@ -5306,10 +5316,9 @@ function saveNewProduct() {
             }
 
             try {
-                // 2. Erradicar explícitamente de la lista de Pedidos vivos en Firebase
+                // Erradicar de Firebase
                 await db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(orderId.toString()).delete();
                 
-                // 3. 🚀 ERRADICAR DEL ARCHIVERO INFINITO DE FIREBASE
                 const saleToDelete = state.sales.find(s => s.orderId === orderId);
                 if (saleToDelete) {
                     await db.collection('pizzaManager').doc(currentBranch).collection('sales').doc(saleToDelete.id.toString()).delete();
@@ -5319,21 +5328,25 @@ function saveNewProduct() {
                 state.orders = state.orders.filter(o => o.id !== orderId);
                 state.sales = state.sales.filter(s => s.orderId !== orderId);
 
-                // 4. Erradicar movimientos de caja asociados a este ticket
                 if (state.cashRegister && state.cashRegister.movements) {
                     state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
                 }
 
-                // 5. Guardar el estado (Inventario devuelto y mesa libre)
                 logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
                 saveToStorage(); 
                 
                 showToast('✅ Pedido erradicado de todas las bases de datos', 'success');
                 closeModal();
                 
-                if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
-                if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
-                if (currentView === 'reports') renderReports(document.getElementById('contentArea'));
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS
+                if (folioEliminado) await reestructurarFolios(folioEliminado);
+                
+                // Refrescar vistas si por alguna razón no entró a reestructurar
+                if (!folioEliminado) {
+                    if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
+                    if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
+                    if (currentView === 'reports') renderReports(document.getElementById('contentArea'));
+                }
             } catch (error) {
                 console.error("Error al borrar pedido forzado:", error);
                 showToast('Error de conexión al borrar', 'error');
@@ -5360,7 +5373,7 @@ function payExistingOrder(orderId, method) {
             const methodLabel = method === 'cash' ? 'Efectivo 💵' : 'Transferencia 📱';
             
             // 💡 Ajuste para que no truene si el ID es texto en lugar de número
-            const displayId = order.id === 'new_counter' ? 'NUEVA' : order.id.toString().slice(-4);
+            const displayId = order.id === 'new_counter' ? 'NUEVA' : (order.folio || "S/F");
 
             const modal = document.getElementById('modalContainer');
             modal.innerHTML = `
@@ -5467,12 +5480,14 @@ function payExistingOrder(orderId, method) {
             if (orderId === 'new_counter') {
                 const total = calculateCartTotal();
                 const newOrderId = Date.now();
-                
-                // 💡 LÓGICA MODO LITE: Verificamos en qué modo está el sistema
                 const isLiteMode = state.settings && state.settings.systemMode === 'counter';
-                
+
+                // 💡 Calcular el siguiente folio
+                const maxFolio = Math.max(0, ...state.orders.map(o => o.folio || 0), ...state.sales.map(s => s.folio || 0));
+
                 order = {
                     id: newOrderId,
+                    folio: maxFolio + 1, // 🌟 NUEVO CAMPO SECUENCIAL
                     type: 'counter',
                     items: [...currentCart],
                     total: total,
@@ -5556,11 +5571,11 @@ function payExistingOrder(orderId, method) {
                     paymentMethod: method,
                     orderId: order.id,
                     timestamp: new Date().toISOString(),
-                    description: `Abono a Ticket #${order.id.toString().slice(-4)}`
+                    description: `Abono a Ticket #${(order.folio || "S/F")}`
                 });
             }
 
-            logActivity('SALE_PARTIAL', `Abono a pedido #${order.id.toString().slice(-4)} por $${amountToPay} - ${method}`);
+            logActivity('SALE_PARTIAL', `Abono a pedido #${(order.folio || "S/F")} por $${amountToPay} - ${method}`);
 
             // 3. Evaluar si la cuenta quedó saldada a $0
             if (order.paidAmount >= order.total) {
@@ -5569,9 +5584,11 @@ function payExistingOrder(orderId, method) {
                 order.paymentMethod = order.payments.length > 1 ? 'mixed' : method; 
 
                 // Convertirlo en Venta Oficial
+                // Convertirlo en Venta Oficial
                 const sale = {
                     id: Date.now(),
                     orderId: order.id,
+                    folio: order.folio, // 🌟 HEREDA EL FOLIO DE LA ORDEN
                     items: [...order.items],
                     subtotal: order.total,
                     total: order.total,
@@ -7525,7 +7542,7 @@ function payExistingOrder(orderId, method) {
                                 ${tableNameDisplay}
                             </p>
                             <p class="text-[12px] mt-2 font-bold">${new Date().toLocaleString('es-MX')}</p>
-                            <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
+                            <p class="text-[14px] mt-1 font-black">COMANDA #${(order.folio || "S/F")}</p>
                         </div>
 
                         <div class="space-y-3 mb-4 text-[12px] leading-tight w-full">
@@ -7608,7 +7625,7 @@ function payExistingOrder(orderId, method) {
                                 ${tableNameDisplay}
                             </p>
                             <p class="text-[12px] mt-2 font-bold">${new Date(order.createdAt).toLocaleString('es-MX')}</p>
-                            <p class="text-[14px] mt-1 font-black">COMANDA #${order.id.toString().slice(-4)}</p>
+                            <p class="text-[14px] mt-1 font-black">COMANDA #${(order.folio || "S/F")}</p>
                         </div>
 
                         <div class="space-y-3 mb-4 text-[12px] leading-tight w-full">
@@ -7782,6 +7799,8 @@ function payExistingOrder(orderId, method) {
             setTimeout(() => document.getElementById('adminForceDeletePassword').focus(), 100);
         }
 
+        
+
         async function forceDeleteTicket(saleId, orderId) {
             const pwdInput = document.getElementById('adminForceDeletePassword').value;
             // 🔒 Misma contraseña maestra
@@ -7796,22 +7815,26 @@ function payExistingOrder(orderId, method) {
             try {
                 showToast('Eliminando de la nube...', 'info');
 
-                // 1. Borrar físicamente de Firebase (El Archivero Infinito)
+                // 1. RECORDAMOS QUÉ NÚMERO DE FOLIO VAMOS A BORRAR
+                const saleToDelete = state.sales.find(s => s.id === saleId);
+                const folioEliminado = saleToDelete ? saleToDelete.folio : null; // 🌟 RECORDAMOS QUÉ NÚMERO ERA
+
+                // Borrar físicamente de Firebase (El Archivero Infinito)
                 await db.collection('pizzaManager').doc(currentBranch)
                     .collection('sales').doc(saleId.toString()).delete();
 
-                // 2. Limpiar memoria local para que la gráfica se actualice
+                // Limpiar memoria local para que la gráfica se actualice
                 state.sales = state.sales.filter(s => s.id !== saleId);
                 if (state.reportSales) {
                     state.reportSales = state.reportSales.filter(s => s.id !== saleId);
                 }
 
-                // 3. Borrar el movimiento de caja asociado
+                // Borrar el movimiento de caja asociado
                 if (state.cashRegister && state.cashRegister.movements) {
                     state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
                 }
 
-                // 💡 NUEVO: 4. Erradicar el pedido de la Cocina y de Pedidos
+                // Erradicar el pedido de la Cocina y de Pedidos
                 state.orders = state.orders.filter(o => o.id !== orderId);
 
                 // Guardar los cambios (caja y cocina) en Firebase
@@ -7819,11 +7842,18 @@ function payExistingOrder(orderId, method) {
 
                 logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado por Admin`);
                 
+                // 👇 AQUÍ ESTÁ EL FRAGMENTO QUE PREGUNTASTE 👇
                 showToast('✅ Ticket y Comanda eliminados de la nube', 'success');
                 closeModal();
                 
-                // Recargar pantalla
-                renderTicketHistory(document.getElementById('contentArea'));
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS
+                if (folioEliminado) await reestructurarFolios(folioEliminado);
+                // 👆 ======================================== 👆
+                
+                // Recargar pantalla si por alguna razón no entró al reacomodo
+                if (!folioEliminado) {
+                    renderTicketHistory(document.getElementById('contentArea'));
+                }
 
             } catch (error) {
                 console.error("Error al borrar ticket fantasma:", error);
@@ -7924,12 +7954,56 @@ function payExistingOrder(orderId, method) {
                 showToast('✅ Categorías actualizadas correctamente', 'success');
             }
         }
-
         function deleteModifier(id) {
             state.modifiers = state.modifiers.filter(m => m.id !== id);
             saveToStorage();
             showToast('🗑️ Modificador eliminado', 'success');
             renderSettings(document.getElementById('contentArea'));
+        }
+
+        // ==================== REESTRUCTURACIÓN DINÁMICA DE FOLIOS ====================
+        async function reestructurarFolios(folioEliminado) {
+            if (!folioEliminado) return;
+            
+            showToast('Reestructurando folios...', 'info');
+            const batch = db.batch();
+            let changed = false;
+
+            // 1. Recorrer pedidos activos (Cocina/Mesas) y restar 1 si su folio es mayor al eliminado
+            state.orders.forEach(o => {
+                if (o.folio > folioEliminado) {
+                    o.folio -= 1;
+                    const ref = db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(o.id.toString());
+                    batch.update(ref, { folio: o.folio });
+                    changed = true;
+                }
+            });
+
+            // 2. Recorrer ventas finalizadas (Historial) y restar 1 si su folio es mayor
+            state.sales.forEach(s => {
+                if (s.folio > folioEliminado) {
+                    s.folio -= 1;
+                    const ref = db.collection('pizzaManager').doc(currentBranch).collection('sales').doc(s.id.toString());
+                    batch.update(ref, { folio: s.folio });
+                    changed = true;
+                }
+            });
+
+            // 3. Confirmar cambios en Firebase
+            if (changed) {
+                try {
+                    await batch.commit();
+                    saveToStorage(); 
+                    showToast('✅ Folios reordenados correctamente', 'success');
+                    
+                    // Refrescar las vistas para que el cambio de números se vea de inmediato
+                    if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
+                    if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
+                    if (currentView === 'dashboard') renderDashboard(document.getElementById('contentArea'));
+                } catch (error) {
+                    console.error('Error reestructurando folios:', error);
+                }
+            }
         }
 
 
