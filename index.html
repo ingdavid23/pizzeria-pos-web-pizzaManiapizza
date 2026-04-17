@@ -2472,7 +2472,6 @@ function processPayment(method) {
             const endTime = order.statusUpdatedAt ? new Date(order.statusUpdatedAt) : new Date();
             const waitTime = Math.floor((endTime - new Date(order.createdAt)) / 60000);
 
-            // 💡 NUEVA LÓGICA: Filtramos lo que ya se entregó en vueltas anteriores
             const kitchenItems = [];
             order.items.forEach(item => {
                 const prod = state.products.find(p => p.id === item.productId);
@@ -2480,9 +2479,7 @@ function processPayment(method) {
                 const cat = prod.category ? prod.category.toLowerCase() : '';
                 
                 if (cat !== 'drink' && cat !== 'bebidas' && cat !== 'bebida') {
-                    // Restamos lo que ya se entregó antes
                     const unDeliveredQty = item.quantity - (item.deliveredQty || 0);
-                    
                     if (isHistory || unDeliveredQty > 0) {
                         kitchenItems.push({ 
                             ...item, 
@@ -2495,12 +2492,16 @@ function processPayment(method) {
 
             const hasNewAgregados = kitchenItems.some(i => i.isNew);
             const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+            
+            // 💡 SOLUCIÓN DEFINITIVA EN TARJETAS:
+            let rawId = (order.folio && order.folio !== 'S/F') ? order.folio : (order.ticket_num || order.id);
+            const ticketFolio = rawId.toString().length > 6 ? rawId.toString().slice(-4) : rawId;
 
             return `
                 <div class="bg-white rounded-2xl p-4 flex flex-col border border-white shadow-sm ${isHistory ? 'opacity-80 border-l-4 border-l-green-400 bg-theme-bg' : 'card-hover'} ${!isHistory && waitTime > 15 && !hasNewAgregados ? 'border-2 border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : ''} ${!isHistory && waitTime > 10 && waitTime <= 15 && !hasNewAgregados ? 'border-2 border-yellow-400' : ''} ${hasNewAgregados ? 'border-2 border-orange-400 shadow-[0_0_15px_rgba(243,167,13,0.3)]' : ''}">
                     <div class="flex items-center justify-between mb-3">
                         <div class="flex items-center flex-wrap gap-1">
-                            <span class="text-xl font-extrabold text-theme-text">#${(order.folio || "S/F")}</span>
+                            <span class="text-xl font-extrabold text-theme-text">#${ticketFolio}</span>
                             <span class="ml-1 px-2 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
                                 ${tableNameDisplay}
                             </span>
@@ -4975,16 +4976,29 @@ function saveNewProduct() {
                             `}
                         </div>
 
-                        <div class="glass bg-white/60 rounded-2xl p-6 border border-white shadow-sm flex flex-col h-full min-h-[400px]">
-                            <h3 class="font-extrabold text-lg mb-4 text-theme-text border-b border-theme-beige pb-4 shrink-0">Movimientos de la Fecha</h3>
+                       <div class="glass bg-white/60 rounded-2xl p-6 border border-white shadow-sm flex flex-col h-full min-h-[400px]">
+                            
+                            <div class="flex justify-between items-center mb-4 border-b border-theme-beige pb-4 shrink-0">
+                                <h3 class="font-extrabold text-lg text-theme-text">Movimientos de la Fecha</h3>
+                                ${isToday && cr.isOpen ? `<button onclick="syncCashRegisterWithSales()" class="text-[10px] bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300 px-3 py-1.5 rounded-lg font-black transition shadow-sm flex items-center gap-1">🪄 CUADRAR CAJA</button>` : ''}
+                            </div>
+
                             <div class="space-y-3 flex-1 overflow-auto scrollbar-thin pr-2">
-                                ${filteredMovements.length > 0 ? filteredMovements.slice().reverse().map(m => `
+                                ${filteredMovements.length > 0 ? filteredMovements.slice().reverse().map(m => {
+                                    
+                                    // 💡 LIMPIEZA VISUAL: Reemplaza los #S/F viejos por el folio real
+                                    let desc = m.description || '';
+                                    if (desc.includes('S/F') && m.orderId) {
+                                        desc = desc.replace('S/F', m.orderId.toString().slice(-4));
+                                    }
+
+                                    return `
                                     <div class="flex items-center justify-between p-4 rounded-xl bg-white border border-theme-beige shadow-sm">
                                         <div>
                                             <p class="font-extrabold text-theme-text flex items-center gap-2">
                                                 ${m.type === 'sale' ? '💰 Venta' : m.type === 'expense' ? '💸 Gasto' : m.type === 'open' ? '🔓 Apertura' : '🔒 Cierre'}
                                             </p>
-                                            <p class="text-xs font-bold text-theme-textMuted mt-1">${new Date(m.timestamp).toLocaleTimeString('es-MX')} ${m.description ? `• ${m.description}` : ''}</p>
+                                            <p class="text-xs font-bold text-theme-textMuted mt-1">${new Date(m.timestamp).toLocaleTimeString('es-MX')} ${desc ? `• ${desc}` : ''}</p>
                                         </div>
                                         <div class="text-right">
                                             <p class="font-extrabold text-lg ${m.type === 'expense' ? 'text-red-600' : m.amount >= 0 ? 'text-green-600' : 'text-theme-text'}">
@@ -4993,7 +5007,8 @@ function saveNewProduct() {
                                             ${m.paymentMethod ? `<p class="text-[10px] font-bold mt-1 ${m.paymentMethod === 'cash' ? 'text-green-600 bg-green-100' : 'text-blue-600 bg-blue-100'} inline-block px-2 py-0.5 rounded-md uppercase">${m.paymentMethod === 'cash' ? 'Efectivo' : 'Transf.'}</p>` : ''}
                                         </div>
                                     </div>
-                                `).join('') : '<p class="text-theme-textMuted font-medium text-center py-12">Sin movimientos registrados en esta fecha</p>'}
+                                    `;
+                                }).join('') : '<p class="text-theme-textMuted font-medium text-center py-12">Sin movimientos registrados en esta fecha</p>'}
                             </div>
                         </div>
 
@@ -5316,12 +5331,21 @@ function saveNewProduct() {
 
                     // Inyectar el HTML con los resultados
                     listContainer.innerHTML = activeOrders.map(order => {
+                        
+                        // 👇 AQUÍ PEGAS EL CÓDIGO EXACTAMENTE 👇
                         const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+                        
+                        // 💡 SOLUCIÓN DEFINITIVA A LOS FOLIOS: 
+                        // Rescatamos el ID, pero si es un "chorizo" numérico de Firebase, lo cortamos a 4 dígitos.
+                        let rawId = (order.folio && order.folio !== 'S/F') ? order.folio : (order.ticket_num || order.id);
+                        const ticketFolio = rawId.toString().length > 6 ? rawId.toString().slice(-4) : rawId;
+                        // 👆 HASTA AQUÍ 👆
+
                         return `
                         <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
                             <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
                                 <div class="flex items-center gap-3 flex-wrap">
-                                    <span class="text-xl font-extrabold text-theme-text">#${(order.folio || "S/F")}</span>
+                                    <span class="text-xl font-extrabold text-theme-text">#${ticketFolio}</span>
                                     <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
                                         ${tableNameDisplay}
                                     </span>
@@ -5444,9 +5468,11 @@ function saveNewProduct() {
                 state.orders = state.orders.filter(o => o.id !== orderId);
                 state.sales = state.sales.filter(s => s.orderId !== orderId);
 
-                if (state.cashRegister && state.cashRegister.movements) {
-                    state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
-                }
+                // 4. Erradicar movimientos de caja asociados a este ticket
+            if (state.cashRegister && state.cashRegister.movements) {
+                // 💡 SOLUCIÓN A LA CAJA: Conversión estricta a String
+                state.cashRegister.movements = state.cashRegister.movements.filter(m => String(m.orderId) !== String(orderId));
+            }
 
                 logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
                 saveToStorage(); 
@@ -7945,9 +7971,10 @@ function payExistingOrder(orderId, method) {
                     state.reportSales = state.reportSales.filter(s => s.id !== saleId);
                 }
 
-                // Borrar el movimiento de caja asociado
+                // 3. Borrar el movimiento de caja asociado
                 if (state.cashRegister && state.cashRegister.movements) {
-                    state.cashRegister.movements = state.cashRegister.movements.filter(m => m.orderId !== orderId);
+                    // 💡 SOLUCIÓN A LA CAJA: Conversión estricta a String
+                    state.cashRegister.movements = state.cashRegister.movements.filter(m => String(m.orderId) !== String(orderId));
                 }
 
                 // Erradicar el pedido de la Cocina y de Pedidos
@@ -8120,6 +8147,34 @@ function payExistingOrder(orderId, method) {
                     console.error('Error reestructurando folios:', error);
                 }
             }
+        }
+
+        // ==================== LIMPIEZA INTELIGENTE DE CAJA ====================
+        function syncCashRegisterWithSales() {
+            if (!confirm("🪄 Esto eliminará los cobros fantasma de la caja para que coincida exactamente con las Ventas Reales del día. ¿Deseas continuar?")) return;
+            
+            // Dejamos intactos los movimientos que NO son ventas (aperturas, cierres, gastos)
+            const validMovements = state.cashRegister.movements.filter(m => m.type !== 'sale');
+            
+            // Extraemos solo los abonos de ventas
+            const saleMovements = state.cashRegister.movements.filter(m => m.type === 'sale');
+            
+            saleMovements.forEach(m => {
+                // Comparamos convirtiendo a Texto (String) para que no haya choques
+                const saleExists = state.sales.find(s => String(s.orderId) === String(m.orderId));
+                const orderExists = state.orders.find(o => String(o.id) === String(m.orderId));
+                
+                // Si el ticket aún existe (vivo o cobrado), el dinero es legítimo y se queda
+                if (saleExists || orderExists) {
+                    validMovements.push(m); 
+                }
+            });
+            
+            state.cashRegister.movements = validMovements;
+            saveToStorage();
+            
+            showToast('✅ Caja cuadrada con las ventas reales exitosamente', 'success');
+            renderCashRegister(document.getElementById('contentArea'));
         }
 
 
