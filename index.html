@@ -3036,7 +3036,8 @@ function processPayment(method) {
             showToast('Nota eliminada', 'info');
         }
 
-        function sendTableOrder(tableId) {
+        // ==================== ENVIAR ORDEN DE MESA ====================
+        async function sendTableOrder(tableId) {
             try {
                 if (currentCart.length === 0) {
                     showToast('Agrega al menos un producto', 'warning');
@@ -3044,17 +3045,16 @@ function processPayment(method) {
                 }
                 const table = state.tables.find(t => t.id === tableId);
                 
-                // 👇 ESTA ERA LA LÍNEA MÁGICA QUE FALTABA 👇
-                // Busca si la mesa ya tiene un pedido activo (sin pagar ni cancelar)
+                // Busca si la mesa ya tiene un pedido activo
                 let order = state.orders.find(o => o.tableId === tableId && o.paymentStatus !== 'paid' && o.status !== 'cancelled');
                 
                 if (!order) {
-                    // 💡 Calcular el siguiente folio sumando vivos y muertos
-                    const maxFolio = Math.max(0, ...state.orders.map(o => o.folio || 0), ...state.sales.map(s => s.folio || 0));
+                    // 💡 SOLUCIÓN DEFINITIVA: Pedimos el folio atómico a Firebase
+                    const maxFolio = await getNextFolio(currentBranch);
 
                     order = {
                         id: Date.now(),
-                        folio: maxFolio + 1, // 🌟 NUEVO CAMPO SECUENCIAL
+                        folio: maxFolio, // 🌟 NÚMERO ÚNICO E IRREPETIBLE
                         type: 'table',
                         tableId: tableId,
                         tableName: table.name,
@@ -3071,17 +3071,13 @@ function processPayment(method) {
                     };
                     state.orders.push(order);
                 } else {
-                    // 💡 MAGIA: Si el ticket ya había sido entregado, lo "revivimos" 
-                    // regresándolo a Pendiente para que la cocina prepare lo nuevo que pidieron
                     if (order.status === 'delivered' || order.status === 'ready') {
                         order.status = 'pending';
-                        order.createdAt = new Date().toISOString(); // Reinicia el cronómetro en la pantalla de cocina
+                        order.createdAt = new Date().toISOString(); 
                     }
                 }
 
                 currentCart.forEach(cartItem => {
-                    // 1. Agregar el producto a la cuenta de la mesa
-                    // 🚨 CORRECCIÓN MAGISTRAL: Ahora comparamos el ID *Y* el NOMBRE COMPLETO para que jamás mezcle tamaños o variantes
                     const existing = order.items.find(i => i.productId === cartItem.productId && i.name === cartItem.name && i.note === cartItem.note); 
                     
                     if (existing) {
@@ -3090,7 +3086,6 @@ function processPayment(method) {
                         order.items.push({ ...cartItem });
                     }
 
-                    // 2. Descontar del inventario real en este momento
                     const product = state.products.find(p => p.id === cartItem.productId);
                     if (product && product.ingredients) {
                         product.ingredients.forEach(ing => {
@@ -3107,7 +3102,6 @@ function processPayment(method) {
 
                 checkProductAvailability();
 
-                // Actualizar total de la mesa y bloquearla
                 order.total = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
                 table.status = 'occupied';
 
@@ -3116,10 +3110,10 @@ function processPayment(method) {
                 } catch(e) {}
 
                 currentCart = [];
-                window.isMobileCartOpen = false; // Cerramos el carrito en el celular después de enviar
+                window.isMobileCartOpen = false;
                 saveToStorage();
                 
-                showToast('✅ Orden enviada a cocina e Inventario actualizado', 'success');
+                showToast('✅ Orden enviada a cocina', 'success');
 
                 const modal = document.getElementById('modalContainer');
                 if (modal) {
@@ -5604,9 +5598,8 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-       // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
-       function processPartialPayment(orderId, method) {
-            // Escudo anti doble clic
+      // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
+      async function processPartialPayment(orderId, method) {
             const btn = document.getElementById('confirmOrderPaymentBtn');
             if (btn && btn.getAttribute('data-processing') === 'true') return;
             
@@ -5624,16 +5617,15 @@ function payExistingOrder(orderId, method) {
                 const newOrderId = Date.now();
                 const isLiteMode = state.settings && state.settings.systemMode === 'counter';
 
-                // 💡 Calcular el siguiente folio
-                const maxFolio = Math.max(0, ...state.orders.map(o => o.folio || 0), ...state.sales.map(s => s.folio || 0));
+                // 💡 SOLUCIÓN DEFINITIVA: Pedimos el folio atómico a Firebase
+                const maxFolio = await getNextFolio(currentBranch);
 
                 order = {
                     id: newOrderId,
-                    folio: maxFolio + 1, // 🌟 NUEVO CAMPO SECUENCIAL
+                    folio: maxFolio, // 🌟 NÚMERO ÚNICO E IRREPETIBLE
                     type: 'counter',
                     items: [...currentCart],
                     total: total,
-                    // 💡 MAGIA: Si es modo Lite, nace como "delivered" para NO ir a cocina ni a pedidos activos
                     status: isLiteMode ? 'delivered' : 'pending', 
                     paymentMethod: null,
                     paymentStatus: 'pending',
@@ -5644,7 +5636,7 @@ function payExistingOrder(orderId, method) {
                     tableId: null
                 };
 
-                // Descontar inventario AHORA SÍ
+                // Descontar inventario
                 currentCart.forEach(cartItem => {
                     const product = state.products.find(p => p.id === cartItem.productId);
                     if (product && product.ingredients) {
@@ -5663,18 +5655,15 @@ function payExistingOrder(orderId, method) {
 
                 state.orders.push(order);
                 
-                // 💡 LÓGICA MODO LITE: Solo avisamos a la cocina si estamos en Restaurante Completo
                 if (!isLiteMode) {
                     try { addNotification('info', `Nuevo pedido #${newOrderId.toString().slice(-4)}`, ['kitchen']); } catch(e){}
                 }
                 
-                logActivity('ORDER_CREATE', `Pedido #${newOrderId.toString().slice(-4)} creado por $${total}`);
+                logActivity('ORDER_CREATE', `Pedido de mostrador creado por $${total}`);
 
-                // Limpiamos el carrito visual
                 currentCart = [];
                 updateCartDisplay();
             } else {
-                // Si viene de una Mesa, simplemente la buscamos en la base de datos
                 order = state.orders.find(o => String(o.id) === String(orderId));
             }
 
@@ -5689,11 +5678,9 @@ function payExistingOrder(orderId, method) {
                 change = received - amountToPay;
             }
 
-            // Inicializar estructuras de pagos
             if (!order.paidAmount) order.paidAmount = 0;
             if (!order.payments) order.payments = [];
 
-            // 1. Guardar el abono individual en la orden
             order.payments.push({
                 method: method,
                 amount: amountToPay,
@@ -5705,7 +5692,6 @@ function payExistingOrder(orderId, method) {
 
             order.paidAmount += amountToPay;
 
-            // 2. Guardar el movimiento físico en la Caja
             if (state.cashRegister.isOpen) {
                 state.cashRegister.movements.push({
                     type: 'sale',
@@ -5719,14 +5705,10 @@ function payExistingOrder(orderId, method) {
 
             logActivity('SALE_PARTIAL', `Abono a pedido #${(order.folio || "S/F")} por $${amountToPay} - ${method}`);
 
-            // 3. Evaluar si la cuenta quedó saldada a $0
             if (order.paidAmount >= order.total) {
                 order.paymentStatus = 'paid';
-                // Etiquetamos como mixto si combinaron pagos
                 order.paymentMethod = order.payments.length > 1 ? 'mixed' : method; 
 
-                // Convertirlo en Venta Oficial
-                // Convertirlo en Venta Oficial
                 const sale = {
                     id: Date.now(),
                     orderId: order.id,
@@ -5741,10 +5723,8 @@ function payExistingOrder(orderId, method) {
                     cashierName: currentUser.name
                 };
                 
-                // 🚀 NUEVA ARQUITECTURA: Lo mandamos directo a su carpeta infinita
                 saveSaleToCloud(sale);
                 
-                // Lo dejamos temporalmente en la memoria visual para que la pantalla no parpadee
                 if (!state.sales) state.sales = [];
                 state.sales.push(sale);
 
@@ -5755,14 +5735,12 @@ function payExistingOrder(orderId, method) {
                 showReceipt(sale);
 
             } else {
-                // Aún debe dinero (Abono Parcial Exitoso)
                 const remaining = order.total - order.paidAmount;
                 saveToStorage();
                 showToast(`✅ Abono guardado. Restan por pagar: $${remaining}`, 'info');
                 closeModal();
                 renderView(currentView);
                 
-                // Si el mesero está viendo la mesa, le refrescamos el modal de la mesa
                 if (currentView === 'waiter' && selectedTable) {
                     selectTable(selectedTable);
                 }
@@ -8146,6 +8124,26 @@ function payExistingOrder(orderId, method) {
                 } catch (error) {
                     console.error('Error reestructurando folios:', error);
                 }
+            }
+        }
+
+        // ==================== GENERACIÓN DE FOLIO GLOBAL SECUENCIAL (ATÓMICO) ====================
+        async function getNextFolio(branchId) {
+            const counterRef = db.collection('pizzaManager').doc(branchId).collection('config').doc('counters');
+            try {
+                return await db.runTransaction(async (transaction) => {
+                    const counterDoc = await transaction.get(counterRef);
+                    if (!counterDoc.exists) {
+                        transaction.set(counterRef, { orderFolio: 1 });
+                        return 1;
+                    }
+                    const nextFolio = (counterDoc.data().orderFolio || 0) + 1;
+                    transaction.update(counterRef, { orderFolio: nextFolio });
+                    return nextFolio;
+                });
+            } catch (error) {
+                console.error("Error al generar folio:", error);
+                return Date.now().toString().slice(-4); // Respaldo de emergencia
             }
         }
 
