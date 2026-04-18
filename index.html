@@ -8253,19 +8253,34 @@ function payExistingOrder(orderId, method) {
         async function getNextFolio(branchId) {
             const counterRef = db.collection('pizzaManager').doc(branchId).collection('config').doc('counters');
             try {
+                // Intenta ir a la nube a buscar el folio perfecto
                 return await db.runTransaction(async (transaction) => {
                     const counterDoc = await transaction.get(counterRef);
                     if (!counterDoc.exists) {
                         transaction.set(counterRef, { orderFolio: 1 });
                         return 1;
                     }
-                    const nextFolio = (counterDoc.data().orderFolio || 0) + 1;
+                    const nextFolio = (Number(counterDoc.data().orderFolio) || 0) + 1;
                     transaction.update(counterRef, { orderFolio: nextFolio });
                     return nextFolio;
                 });
             } catch (error) {
-                console.error("Error al generar folio:", error);
-                return Date.now().toString().slice(-4); // Respaldo de emergencia
+                console.warn("Nube inaccesible (Sin Internet). Usando folio local de respaldo.");
+                
+                // 💡 RESPALDO INTELIGENTE (OFFLINE): Si no hay internet, no genera números al azar.
+                // Busca el folio numérico más alto en la tablet y le suma 1.
+                let maxLocal = 0;
+                const todosLosTickets = [...(state.orders || []), ...(state.sales || [])];
+                
+                todosLosTickets.forEach(item => {
+                    const f = parseInt(item.folio);
+                    // Ignoramos los folios dañados o letras como "S/F"
+                    if (!isNaN(f) && f > maxLocal) {
+                        maxLocal = f;
+                    }
+                });
+                
+                return maxLocal + 1;
             }
         }
 
