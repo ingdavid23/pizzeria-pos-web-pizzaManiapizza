@@ -6713,6 +6713,11 @@ function payExistingOrder(orderId, method) {
                                 <button onclick="showImportModal()" class="w-full py-4 rounded-xl bg-green-50 hover:bg-green-100 text-green-700 font-bold border border-green-200 transition flex items-center justify-center gap-2 shadow-sm">
                                     📤 Importar Datos a Firebase
                                 </button>
+
+                                <button onclick="confirmResetFolio()" class="w-full py-4 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-700 font-bold border border-orange-200 transition flex items-center justify-center gap-2 shadow-sm mt-2">
+                                    🔄 Reiniciar Contador de Folios a #1
+                                </button>
+
                                 <button onclick="confirmResetData()" class="w-full py-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 transition flex items-center justify-center gap-2 shadow-sm mt-6">
                                     ⚠️ Restaurar Sistema de Fábrica
                                 </button>
@@ -6887,6 +6892,39 @@ function payExistingOrder(orderId, method) {
             showToast('Datos restaurados correctamente', 'success');
             closeModal();
             renderView(currentView);
+        }
+
+
+        // ==================== REINICIO DE FOLIOS (PARA PRUEBAS) ====================
+        function confirmResetFolio() {
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-orange-300 text-center">
+                    <div class="text-5xl mb-4 drop-shadow-md">🔄</div>
+                    <h3 class="text-xl font-extrabold mb-2 text-orange-600">¿Reiniciar Folios?</h3>
+                    <p class="text-sm text-theme-text font-medium mb-6">El próximo pedido que registres comenzará desde el <strong>#1</strong>. Usa esto solo si estás limpiando el sistema después de hacer pruebas.</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="resetFolioCounter()" class="bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold shadow-md transition">Sí, Reiniciar a #1</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        async function resetFolioCounter() {
+            try {
+                showToast('Reiniciando contador en la nube...', 'info');
+                // Buscamos el cuenta kilómetros en Firebase y lo regresamos a 0
+                const counterRef = db.collection('pizzaManager').doc(currentBranch).collection('config').doc('counters');
+                await counterRef.set({ orderFolio: 0 }); 
+                
+                showToast('✅ Contador reiniciado. El próximo ticket será el #1', 'success');
+                closeModal();
+            } catch (error) {
+                console.error("Error al reiniciar folio:", error);
+                showToast('Error al conectar con la nube', 'error');
+            }
         }
 
         function addTable() {
