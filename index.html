@@ -5431,11 +5431,14 @@ function saveNewProduct() {
                 return;
             }
 
-            // 👇 AQUÍ ES EXACTAMENTE DONDE VA TU CÓDIGO 👇
             // 1. RECORDAMOS QUÉ NÚMERO DE FOLIO VAMOS A BORRAR ANTES DE TOCAR NADA
             const orderToRest = state.orders.find(o => o.id === orderId);
-            const folioEliminado = orderToRest ? orderToRest.folio : null; 
-            // 👆 ========================================= 👆
+            const saleToRest = state.sales.find(s => s.orderId === orderId);
+            
+            // 💡 SOLUCIÓN MÁGICA: Extraer el folio forzosamente como NÚMERO MATEMÁTICO
+            let folioEliminado = null;
+            if (orderToRest && orderToRest.folio) folioEliminado = parseInt(orderToRest.folio);
+            else if (saleToRest && saleToRest.folio) folioEliminado = parseInt(saleToRest.folio);
 
             // Restaurar Inventario y Liberar Mesa 
             if (orderToRest) {
@@ -5456,6 +5459,8 @@ function saveNewProduct() {
             }
 
             try {
+                showToast('Eliminando y reordenando folios...', 'info');
+
                 // Erradicar de Firebase
                 await db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(orderId.toString()).delete();
                 
@@ -5468,27 +5473,24 @@ function saveNewProduct() {
                 state.orders = state.orders.filter(o => o.id !== orderId);
                 state.sales = state.sales.filter(s => s.orderId !== orderId);
 
-                // 4. Erradicar movimientos de caja asociados a este ticket
-            if (state.cashRegister && state.cashRegister.movements) {
-                // 💡 SOLUCIÓN A LA CAJA: Conversión estricta a String
-                state.cashRegister.movements = state.cashRegister.movements.filter(m => String(m.orderId) !== String(orderId));
-            }
+                // Erradicar movimientos de caja asociados a este ticket
+                if (state.cashRegister && state.cashRegister.movements) {
+                    state.cashRegister.movements = state.cashRegister.movements.filter(m => String(m.orderId) !== String(orderId));
+                }
 
                 logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
-                saveToStorage(); 
                 
-                showToast('✅ Pedido erradicado de todas las bases de datos', 'success');
-                closeModal();
-                
-                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS
-                if (folioEliminado) await reestructurarFolios(folioEliminado);
-                
-                // Refrescar vistas si por alguna razón no entró a reestructurar
-                if (!folioEliminado) {
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS (Solo si el folio es un número válido)
+                if (folioEliminado && !isNaN(folioEliminado)) {
+                    await reestructurarFolios(folioEliminado);
+                } else {
+                    saveToStorage();
+                    closeModal();
                     if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
-                    if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
-                    if (currentView === 'reports') renderReports(document.getElementById('contentArea'));
                 }
+                
+                showToast('✅ Pedido borrado correctamente', 'success');
+                
             } catch (error) {
                 console.error("Error al borrar pedido forzado:", error);
                 showToast('Error de conexión al borrar', 'error');
@@ -8244,26 +8246,27 @@ function payExistingOrder(orderId, method) {
 
         // ==================== REESTRUCTURACIÓN DINÁMICA DE FOLIOS ====================
         async function reestructurarFolios(folioEliminado) {
-            if (!folioEliminado) return;
+            if (!folioEliminado || isNaN(folioEliminado)) return;
             
-            showToast('Reestructurando folios...', 'info');
             const batch = db.batch();
             let changed = false;
 
-            // 1. Recorrer pedidos activos (Cocina/Mesas) y restar 1 si su folio es mayor al eliminado
+            // 1. Recorrer pedidos activos (Cocina/Mesas) y restar 1 si su folio es MATEMÁTICAMENTE mayor
             state.orders.forEach(o => {
-                if (o.folio > folioEliminado) {
-                    o.folio -= 1;
+                let currentFolio = parseInt(o.folio);
+                if (!isNaN(currentFolio) && currentFolio > folioEliminado) {
+                    o.folio = currentFolio - 1; // Asigna el valor ya restado como número
                     const ref = db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(o.id.toString());
                     batch.update(ref, { folio: o.folio });
                     changed = true;
                 }
             });
 
-            // 2. Recorrer ventas finalizadas (Historial) y restar 1 si su folio es mayor
+            // 2. Recorrer ventas finalizadas (Historial) y restar 1 si su folio es MATEMÁTICAMENTE mayor
             state.sales.forEach(s => {
-                if (s.folio > folioEliminado) {
-                    s.folio -= 1;
+                let currentFolio = parseInt(s.folio);
+                if (!isNaN(currentFolio) && currentFolio > folioEliminado) {
+                    s.folio = currentFolio - 1; // Asigna el valor ya restado como número
                     const ref = db.collection('pizzaManager').doc(currentBranch).collection('sales').doc(s.id.toString());
                     batch.update(ref, { folio: s.folio });
                     changed = true;
@@ -8274,52 +8277,40 @@ function payExistingOrder(orderId, method) {
             if (changed) {
                 try {
                     await batch.commit();
-                    saveToStorage(); 
-                    showToast('✅ Folios reordenados correctamente', 'success');
-                    
-                    // Refrescar las vistas para que el cambio de números se vea de inmediato
-                    if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
-                    if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
-                    if (currentView === 'dashboard') renderDashboard(document.getElementById('contentArea'));
                 } catch (error) {
-                    console.error('Error reestructurando folios:', error);
+                    console.error('Error reestructurando folios en la nube:', error);
                 }
             }
+            
+            // Independientemente de Firebase, guardamos el estado local y refrescamos
+            saveToStorage(); 
+            closeModal();
+            
+            // Forzar actualización visual inmediata para que se reacomoden
+            if (currentView === 'orders') renderOrders(document.getElementById('contentArea'));
+            if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
+            if (currentView === 'dashboard') renderDashboard(document.getElementById('contentArea'));
         }
 
-        // ==================== GENERACIÓN DE FOLIO GLOBAL SECUENCIAL (ATÓMICO) ====================
+       // ==================== GENERACIÓN DE FOLIO DINÁMICO (EN VIVO) ====================
+        // Calcula el folio basándose ÚNICAMENTE en los tickets que existen actualmente en el sistema.
         async function getNextFolio(branchId) {
-            const counterRef = db.collection('pizzaManager').doc(branchId).collection('config').doc('counters');
-            try {
-                // Intenta ir a la nube a buscar el folio perfecto
-                return await db.runTransaction(async (transaction) => {
-                    const counterDoc = await transaction.get(counterRef);
-                    if (!counterDoc.exists) {
-                        transaction.set(counterRef, { orderFolio: 1 });
-                        return 1;
-                    }
-                    const nextFolio = (Number(counterDoc.data().orderFolio) || 0) + 1;
-                    transaction.update(counterRef, { orderFolio: nextFolio });
-                    return nextFolio;
-                });
-            } catch (error) {
-                console.warn("Nube inaccesible (Sin Internet). Usando folio local de respaldo.");
-                
-                // 💡 RESPALDO INTELIGENTE (OFFLINE): Si no hay internet, no genera números al azar.
-                // Busca el folio numérico más alto en la tablet y le suma 1.
-                let maxLocal = 0;
-                const todosLosTickets = [...(state.orders || []), ...(state.sales || [])];
-                
-                todosLosTickets.forEach(item => {
-                    const f = parseInt(item.folio);
-                    // Ignoramos los folios dañados o letras como "S/F"
-                    if (!isNaN(f) && f > maxLocal) {
-                        maxLocal = f;
-                    }
-                });
-                
-                return maxLocal + 1;
-            }
+            let maxLocal = 0;
+            
+            // Juntamos los pedidos activos de la cocina y las ventas ya cobradas
+            const todosLosTickets = [...(state.orders || []), ...(state.sales || [])];
+            
+            todosLosTickets.forEach(item => {
+                const f = parseInt(item.folio);
+                // Si encuentra un folio válido, revisa si es el más alto hasta ahora
+                if (!isNaN(f) && f > maxLocal) {
+                    maxLocal = f;
+                }
+            });
+            
+            // Si borraste todos los tickets, maxLocal será 0, así que retornará 1.
+            // Si tienes los tickets 1, 2 y 3, maxLocal será 3, así que retornará 4.
+            return maxLocal + 1;
         }
 
         // ==================== LIMPIEZA INTELIGENTE DE CAJA ====================
