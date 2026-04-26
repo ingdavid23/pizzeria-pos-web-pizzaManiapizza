@@ -602,6 +602,8 @@ function clearAllNotifications() {
         // NUEVAS VARIABLES PARA MULTI-SUCURSAL
         let currentBranch = 'sucursal_principal'; 
         let stateUnsubscribe = null; // Para detener la sincronización al cambiar de sucursal
+
+
         async function saveToStorage() {
             try {
                 const cleanState = { ...state };
@@ -650,10 +652,7 @@ function clearAllNotifications() {
                 const batch = db.batch();
                 const ordersRef = db.collection('pizzaManager').doc(currentBranch).collection('orders');
                 
-                // 🛡️ REGLA BLINDADA: Actualizamos los útiles (vivos + historial reciente)
-                pedidosUtiles.forEach(order => {
-                    batch.set(ordersRef.doc(order.id.toString()), order);
-                });
+                // 🛑 ELIMINAMOS EL CICLO QUE GUARDABA TODOS LOS PEDIDOS A LA VEZ AQUÍ 🛑
                 
                 // Eliminamos físicamente solo los que ya caducaron (viejos)
                 pedidosBasura.forEach(order => {
@@ -676,16 +675,17 @@ function clearAllNotifications() {
             }
         }
 
-        // ==================== ARCHIVERO INFINITO DE VENTAS ====================
-        async function saveSaleToCloud(sale) {
+        // ==================== GUARDADO FRANCOTIRADOR (OPTIMIZACIÓN FIREBASE) ====================
+        async function saveOrderToCloud(order) {
+            if (!order || !order.id) return;
             try {
-                // Crea una sub-carpeta llamada 'sales' dentro de tu sucursal y guarda el ticket con su propio ID
-                await db.collection('pizzaManager').doc(currentBranch)
-                        .collection('sales').doc(sale.id.toString()).set(sale);
-            } catch (error) {
-                console.error("Error al subir el ticket a la nube:", error);
+                // Guarda SOLO este pedido específico, costando 1 sola operación de escritura
+                await db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(order.id.toString()).set(order);
+            } catch(e) {
+                console.error("Error al guardar pedido individual", e);
             }
         }
+       
         // 💡 VARIABLES GLOBALES DE CONEXIÓN
         let salesUnsubscribe = null; 
         let ordersUnsubscribe = null;
@@ -2567,20 +2567,19 @@ function processPayment(method) {
 
             order.status = newStatus;
 
-            // 🌟 MAGIA: Si se entrega el pedido, congelamos los productos para que no repitan
             if (newStatus === 'delivered') {
                 order.items.forEach(item => {
                     item.deliveredQty = item.quantity;
-                    item.printedQty = item.quantity; // Por si olvidaron imprimir el ticket
+                    item.printedQty = item.quantity; 
                 });
             }
 
+            saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
             saveToStorage();
             
             const statusText = typeof getStatusLabel === 'function' ? getStatusLabel(newStatus) : newStatus;
             showToast(`✅ Pedido marcado como: ${statusText}`, 'success');
 
-            // RECARGA INTELIGENTE DE PANTALLAS
             const contentArea = document.getElementById('contentArea');
             if (currentUser.role === 'kitchen') {
                 if (typeof renderKitchen === 'function') renderKitchen(contentArea);
@@ -3109,8 +3108,11 @@ function processPayment(method) {
                     if (typeof addNotification === 'function') addNotification(`Nueva comanda de ${table.name}`, ['kitchen', 'admin']);
                 } catch(e) {}
 
+                // (Busca dentro de sendTableOrder, reemplaza desde "currentCart = [];" hasta el final del try)
                 currentCart = [];
                 window.isMobileCartOpen = false;
+                
+                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
                 saveToStorage();
                 
                 showToast('✅ Orden enviada a cocina', 'success');
@@ -3129,6 +3131,8 @@ function processPayment(method) {
                 showToast('❌ Error al procesar: ' + error.message, 'error');
             }
         }
+
+               
         
         // ==================== MY ORDERS MODULE ====================
         function renderMyOrders(container) {
@@ -5480,9 +5484,10 @@ function saveNewProduct() {
 
                 logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
                 
-                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS (Solo si el folio es un número válido)
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
                 if (folioEliminado && !isNaN(folioEliminado)) {
                     await reestructurarFolios(folioEliminado);
+                    await decrementarContadorGlobal(); // 🎯 Candado hacia atrás
                 } else {
                     saveToStorage();
                     closeModal();
@@ -5836,7 +5841,7 @@ function payExistingOrder(orderId, method) {
                 const sale = {
                     id: Date.now(),
                     orderId: order.id,
-                    folio: order.folio, // 🌟 HEREDA EL FOLIO DE LA ORDEN
+                    folio: order.folio, 
                     items: [...order.items],
                     subtotal: order.total,
                     total: order.total,
@@ -5852,6 +5857,7 @@ function payExistingOrder(orderId, method) {
                 if (!state.sales) state.sales = [];
                 state.sales.push(sale);
 
+                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
                 saveToStorage();
                 showToast('✅ Cuenta liquidada por completo', 'success');
                 closeModal();
@@ -5860,6 +5866,8 @@ function payExistingOrder(orderId, method) {
 
             } else {
                 const remaining = order.total - order.paidAmount;
+                
+                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
                 saveToStorage();
                 showToast(`✅ Abono guardado. Restan por pagar: $${remaining}`, 'info');
                 closeModal();
@@ -7944,21 +7952,18 @@ function payExistingOrder(orderId, method) {
 
    
 
-        // ==================== CEREBRO DE REGISTRO DE IMPRESIÓN ====================
-        function executeKitchenPrint(orderId) {
-            // Mandamos imprimir nativamente en Android / Chrome
+       // ==================== CEREBRO DE REGISTRO DE IMPRESIÓN ====================
+       function executeKitchenPrint(orderId) {
             window.print();
-            
-            // La magia: Le decimos a la base de datos qué productos ya salieron por la impresora
             const order = state.orders.find(o => o.id === orderId);
             if (order) {
                 order.items.forEach(item => {
                     item.printedQty = item.quantity;
                 });
+                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
                 saveToStorage();
             }
         }
-
         // ==================== PRE-CUENTA (TICKET PARA LA MESA SIN PAGAR) ====================
         function printPreCheck(orderId) {
             const order = state.orders.find(o => o.id === orderId);
@@ -8125,19 +8130,18 @@ function payExistingOrder(orderId, method) {
 
                 logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado por Admin`);
                 
-                // 👇 AQUÍ ESTÁ EL FRAGMENTO QUE PREGUNTASTE 👇
-                showToast('✅ Ticket y Comanda eliminados de la nube', 'success');
-                closeModal();
-                
-                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS
-                if (folioEliminado) await reestructurarFolios(folioEliminado);
-                // 👆 ======================================== 👆
-                
-                // Recargar pantalla si por alguna razón no entró al reacomodo
-                if (!folioEliminado) {
-                    renderTicketHistory(document.getElementById('contentArea'));
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
+                if (folioEliminado && !isNaN(folioEliminado)) {
+                    await reestructurarFolios(folioEliminado);
+                    await decrementarContadorGlobal(); // 🎯 Candado hacia atrás
+                } else {
+                    saveToStorage(); 
+                    closeModal();
+                    if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
                 }
-
+                
+                showToast('✅ Ticket eliminado de la nube', 'success');
+                
             } catch (error) {
                 console.error("Error al borrar ticket fantasma:", error);
                 showToast('Error de conexión al borrar', 'error');
@@ -8292,25 +8296,47 @@ function payExistingOrder(orderId, method) {
             if (currentView === 'dashboard') renderDashboard(document.getElementById('contentArea'));
         }
 
-       // ==================== GENERACIÓN DE FOLIO DINÁMICO (EN VIVO) ====================
-        // Calcula el folio basándose ÚNICAMENTE en los tickets que existen actualmente en el sistema.
-        async function getNextFolio(branchId) {
-            let maxLocal = 0;
-            
-            // Juntamos los pedidos activos de la cocina y las ventas ya cobradas
-            const todosLosTickets = [...(state.orders || []), ...(state.sales || [])];
-            
-            todosLosTickets.forEach(item => {
-                const f = parseInt(item.folio);
-                // Si encuentra un folio válido, revisa si es el más alto hasta ahora
-                if (!isNaN(f) && f > maxLocal) {
-                    maxLocal = f;
-                }
-            });
-            
-            // Si borraste todos los tickets, maxLocal será 0, así que retornará 1.
-            // Si tienes los tickets 1, 2 y 3, maxLocal será 3, así que retornará 4.
-            return maxLocal + 1;
+       // ==================== GENERACIÓN DE FOLIO GLOBAL (CANDADO ANTI-DUPLICADOS) ====================
+       async function getNextFolio(branchId) {
+            const counterRef = db.collection('pizzaManager').doc(branchId).collection('config').doc('counters');
+            try {
+                return await db.runTransaction(async (transaction) => {
+                    const counterDoc = await transaction.get(counterRef);
+                    if (!counterDoc.exists) {
+                        transaction.set(counterRef, { orderFolio: 1 });
+                        return 1;
+                    }
+                    const nextFolio = (Number(counterDoc.data().orderFolio) || 0) + 1;
+                    transaction.update(counterRef, { orderFolio: nextFolio });
+                    return nextFolio;
+                });
+            } catch (error) {
+                let maxLocal = 0;
+                const todosLosTickets = [...(state.orders || []), ...(state.sales || [])];
+                todosLosTickets.forEach(item => {
+                    const f = parseInt(item.folio);
+                    if (!isNaN(f) && f > maxLocal) maxLocal = f;
+                });
+                return maxLocal + 1;
+            }
+        }
+
+        // ==================== RETROCESO DE CONTADOR (PARA EVITAR HUECOS AL BORRAR) ====================
+        async function decrementarContadorGlobal() {
+            const counterRef = db.collection('pizzaManager').doc(currentBranch).collection('config').doc('counters');
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const counterDoc = await transaction.get(counterRef);
+                    if (counterDoc.exists) {
+                        let actualFolio = Number(counterDoc.data().orderFolio) || 0;
+                        if (actualFolio > 0) {
+                            transaction.update(counterRef, { orderFolio: actualFolio - 1 });
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error("Error al retroceder el contador", err);
+            }
         }
 
         // ==================== LIMPIEZA INTELIGENTE DE CAJA ====================
