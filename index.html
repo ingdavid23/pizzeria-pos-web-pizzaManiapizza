@@ -733,8 +733,15 @@ function clearAllNotifications() {
                 });
 
                 // 🚀 2. CONEXIÓN A LOS PEDIDOS EN CURSO (ORDERS) - Escucha en vivo
+                // 💡 SÚPER OPTIMIZACIÓN: Solo descargamos los pedidos de los últimos 2 días.
+                // Los miles de pedidos antiguos se quedan en la nube sin gastarnos cuota de lectura.
+                const ordersLimitDate = new Date();
+                ordersLimitDate.setDate(ordersLimitDate.getDate() - 2);
+                ordersLimitDate.setHours(0,0,0,0);
+
                 ordersUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
                     .collection('orders')
+                    .where('createdAt', '>=', ordersLimitDate.toISOString())
                     .onSnapshot(snapshot => {
                         const newOrdersCount = snapshot.docs.length;
                         const oldOrdersCount = state.orders ? state.orders.length : 0;
@@ -746,8 +753,7 @@ function clearAllNotifications() {
                             playKitchenBell();
                         }
                         
-                        // 💡 SOLUCIÓN: SIEMPRE actualizar la pantalla visualmente cuando llegan los datos,
-                        // para quitar el color "gris" de las mesas que se acaba de cargar.
+                        // 💡 SOLUCIÓN: SIEMPRE actualizar la pantalla visualmente
                         if (currentUser && (currentView === 'pos' || currentView === 'waiter' || currentView === 'kitchen' || currentView === 'orders' || currentView === 'dashboard' || currentView === 'myorders')) {
                             renderView(currentView);
                         }
@@ -2373,72 +2379,72 @@ function processPayment(method) {
             localStorage.removeItem('pizzamania_active_table');
         }
 
-        // ==================== KITCHEN MODULE ====================
-        // ==================== KITCHEN MODULE ====================
-        let currentKitchenTab = 'active';
+       // ==================== KITCHEN MODULE ====================
+       let currentKitchenTab = 'active';
 
-        function renderKitchen(container, tab = currentKitchenTab) {
-            currentKitchenTab = tab;
+function renderKitchen(container, tab = currentKitchenTab) {
+    currentKitchenTab = tab;
 
-            const pendingOrders = state.orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled')
-                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const pendingOrders = state.orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled')
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            sevenDaysAgo.setHours(0, 0, 0, 0);
+    // 💡 Cambiamos de 7 días a 2 días (48h) para que coincida con la memoria súper optimizada
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    twoDaysAgo.setHours(0, 0, 0, 0);
 
-            const historyOrders = state.orders.filter(o => {
-                const isHistoryStatus = ['delivered', 'ready', 'cancelled'].includes(o.status);
-                const isRecent = new Date(o.createdAt) >= sevenDaysAgo;
-                return isHistoryStatus && isRecent;
-            }).sort((a, b) => new Date(b.statusUpdatedAt || b.createdAt) - new Date(a.statusUpdatedAt || a.createdAt));
+    const historyOrders = state.orders.filter(o => {
+        const isHistoryStatus = ['delivered', 'ready', 'cancelled'].includes(o.status);
+        const isRecent = new Date(o.createdAt) >= twoDaysAgo;
+        return isHistoryStatus && isRecent;
+    }).sort((a, b) => new Date(b.statusUpdatedAt || b.createdAt) - new Date(a.statusUpdatedAt || a.createdAt));
 
-            const groupedHistory = {};
-            historyOrders.forEach(o => {
-                const dateObj = new Date(o.statusUpdatedAt || o.createdAt);
-                const dateLabel = dateObj.toLocaleDateString('es-MX', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
-                const sortKey = dateObj.toLocaleDateString('en-CA');
+    const groupedHistory = {};
+    historyOrders.forEach(o => {
+        const dateObj = new Date(o.statusUpdatedAt || o.createdAt);
+        const dateLabel = dateObj.toLocaleDateString('es-MX', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+        const sortKey = dateObj.toLocaleDateString('en-CA');
 
-                if (!groupedHistory[sortKey]) {
-                    groupedHistory[sortKey] = {
-                        label: dateLabel,
-                        orders: []
-                    };
-                }
-                groupedHistory[sortKey].orders.push(o);
-            });
+        if (!groupedHistory[sortKey]) {
+            groupedHistory[sortKey] = {
+                label: dateLabel,
+                orders: []
+            };
+        }
+        groupedHistory[sortKey].orders.push(o);
+    });
 
-            const sortedDateKeys = Object.keys(groupedHistory).sort((a, b) => new Date(b) - new Date(a));
+    const sortedDateKeys = Object.keys(groupedHistory).sort((a, b) => new Date(b) - new Date(a));
 
-            container.innerHTML = `
-                <div class="animate-slideIn h-full flex flex-col">
-                    <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4 shrink-0">
-                        <div class="flex flex-col md:flex-row items-start md:items-center gap-4">
-                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">👨‍🍳 Cocina</h2>
-                            
-                            <div class="flex bg-white/60 p-1 rounded-xl border border-white">
-                                <button onclick="renderKitchen(document.getElementById('contentArea'), 'active')" 
-                                    class="${tab === 'active' ? 'bg-theme-green text-white shadow-md' : 'text-theme-textMuted hover:bg-white/50'} px-4 py-2 rounded-lg text-sm transition font-bold">
-                                    🔥 Activos (${pendingOrders.length})
-                                </button>
-                                <button onclick="renderKitchen(document.getElementById('contentArea'), 'history')" 
-                                    class="${tab === 'history' ? 'bg-theme-green text-white shadow-md' : 'text-theme-textMuted hover:bg-white/50'} px-4 py-2 rounded-lg text-sm transition font-bold">
-                                    📅 Historial Semanal
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <button onclick="showKitchenReportModal()" class="btn-primary px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-bold shadow-md">
-                            📝 Reporte del Día
+    container.innerHTML = `
+        <div class="animate-slideIn h-full flex flex-col">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4 shrink-0">
+                <div class="flex flex-col md:flex-row items-start md:items-center gap-4">
+                    <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">👨‍🍳 Cocina</h2>
+                    
+                    <div class="flex bg-white/60 p-1 rounded-xl border border-white">
+                        <button onclick="renderKitchen(document.getElementById('contentArea'), 'active')" 
+                            class="${tab === 'active' ? 'bg-theme-green text-white shadow-md' : 'text-theme-textMuted hover:bg-white/50'} px-4 py-2 rounded-lg text-sm transition font-bold">
+                            🔥 Activos (${pendingOrders.length})
+                        </button>
+                        <button onclick="renderKitchen(document.getElementById('contentArea'), 'history')" 
+                            class="${tab === 'history' ? 'bg-theme-green text-white shadow-md' : 'text-theme-textMuted hover:bg-white/50'} px-4 py-2 rounded-lg text-sm transition font-bold">
+                            📅 Historial (48h)
                         </button>
                     </div>
-
-                    <div class="overflow-auto pb-4 scrollbar-thin flex-1 pr-2">
-                        ${tab === 'active' ? renderActiveOrders(pendingOrders) : renderWeeklyHistory(groupedHistory, sortedDateKeys)}
-                    </div>
                 </div>
-            `;
-        }
+                
+                <button onclick="showKitchenReportModal()" class="btn-primary px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-bold shadow-md">
+                    📝 Reporte del Día
+                </button>
+            </div>
+
+            <div class="overflow-auto pb-4 scrollbar-thin flex-1 pr-2">
+                ${tab === 'active' ? renderActiveOrders(pendingOrders) : renderWeeklyHistory(groupedHistory, sortedDateKeys)}
+            </div>
+        </div>
+    `;
+}
 
         function renderActiveOrders(orders) {
             if (orders.length === 0) return '<div class="h-full flex items-center justify-center"><p class="text-theme-textMuted py-12 text-xl font-medium">🎉 ¡La cocina está al día!</p></div>';
@@ -5265,8 +5271,8 @@ function saveNewProduct() {
 
 
 
-     // ==================== ORDERS MODULE ====================
-     async function renderOrders(container) {
+    // ==================== ORDERS MODULE ====================
+    async function renderOrders(container) {
             const getLocalYYYYMMDD = (dateObj) => {
                 const d = new Date(dateObj);
                 if (isNaN(d)) return "";
@@ -5289,7 +5295,7 @@ function saveNewProduct() {
                 <div class="animate-slideIn h-full flex flex-col">
                     <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 border-b border-theme-beige pb-4 gap-4 shrink-0">
                         <div class="flex items-center gap-3">
-                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📋 Historial de Pedidos</h2>
+                            <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📋 Pedidos Activos</h2>
                             <span id="ordersCountBadge" class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
                                 Cargando...
                             </span>
@@ -5316,8 +5322,8 @@ function saveNewProduct() {
                 </div>
             `;
 
-           // Limpiamos la fuga
-           if (window.ordersHistoryUnsubscribe) {
+            // Limpiamos la fuga
+            if (window.ordersHistoryUnsubscribe) {
                 window.ordersHistoryUnsubscribe();
                 window.ordersHistoryUnsubscribe = null;
             }
@@ -5325,16 +5331,19 @@ function saveNewProduct() {
             let activeOrders = [];
 
             if (isToday) {
-                // 💡 SÚPER OPTIMIZACIÓN: Filtramos la memoria local para mostrar SOLO los de hoy
+                // 💡 SÚPER OPTIMIZACIÓN Y LIMPIEZA: Filtramos para mostrar SOLO pedidos que requieren atención
                 activeOrders = (state.orders || []).filter(o => {
                     if (o.status === 'cancelled') return false;
-                    // Comparamos que la fecha del pedido sea exactamente la de hoy
+                    
+                    // 🔥 NUEVO ESCUDO ANTI-SATURACIÓN: Si ya está pagado y entregado, se oculta para mantener la pantalla limpia
+                    if (o.status === 'delivered' && o.paymentStatus === 'paid') return false;
+                    
                     return getLocalYYYYMMDD(o.createdAt) === targetDateStr;
                 });
                 activeOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
                 paintOrdersList(activeOrders);
             } else {
-                // 💡 SÚPER OPTIMIZACIÓN: Consulta estática rápida, sin manguera permanente
+                // 💡 Consulta estática rápida sin fugas
                 try {
                     const start = new Date(targetDateStr + 'T00:00:00').toISOString();
                     const end = new Date(targetDateStr + 'T23:59:59').toISOString();
@@ -5346,7 +5355,12 @@ function saveNewProduct() {
                     
                     snapshot.forEach(doc => {
                         const o = doc.data();
-                        if (o.status !== 'cancelled') activeOrders.push(o);
+                        if (o.status === 'cancelled') return;
+                        
+                        // 🔥 Ocultar también en búsquedas pasadas
+                        if (o.status === 'delivered' && o.paymentStatus === 'paid') return;
+                        
+                        activeOrders.push(o);
                     });
                     activeOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
                     paintOrdersList(activeOrders);
@@ -5361,7 +5375,7 @@ function saveNewProduct() {
                 if (!listContainer) return;
 
                 const badge = document.getElementById('ordersCountBadge');
-                if (badge) badge.textContent = `${ordersArray.length} tickets`;
+                if (badge) badge.textContent = `${ordersArray.length} activos`;
 
                 listContainer.innerHTML = ordersArray.map(order => {
                     const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
@@ -5419,7 +5433,7 @@ function saveNewProduct() {
                         </div>
                     </div>
                     `;
-                }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>';
+                }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos activos.</p>';
             }
         }
         // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
