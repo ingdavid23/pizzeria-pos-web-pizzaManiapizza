@@ -604,40 +604,32 @@ function clearAllNotifications() {
         let stateUnsubscribe = null; // Para detener la sincronización al cambiar de sucursal
 
 
-        async function saveToStorage() {
+       // ==================== GUARDADO PRINCIPAL (OPTIMIZADO) ====================
+       async function saveToStorage() {
             try {
                 const cleanState = { ...state };
                 
-                // 🌟 MAGIA ARQUITECTÓNICA 2.1 (HISTORIAL DE COCINA PROTEGIDO)
                 const activeOrders = [...(cleanState.orders || [])];
                 const invMovements = [...(cleanState.inventoryMovements || [])];
                 
-                // Calculamos la fecha límite (hace 7 días)
                 const limitDate = new Date();
                 limitDate.setDate(limitDate.getDate() - 7);
                 limitDate.setHours(0, 0, 0, 0);
 
-                // Clasificamos inteligentemente los pedidos
                 const pedidosUtiles = activeOrders.filter(o => {
-                    // 1. Se queda si aún NO está pagado o cancelado (Pedido Vivo)
                     if (o.paymentStatus !== 'paid' && o.status !== 'cancelled') return true;
-                    
-                    // 2. Si ya está terminado, se queda SOLO si es de los últimos 7 días (Historial)
                     const orderDate = new Date(o.createdAt);
                     return orderDate >= limitDate;
                 });
 
                 const pedidosBasura = activeOrders.filter(o => {
-                    // Se borra de la memoria rápida SOLO si ya está terminado Y tiene más de 7 días
                     if (o.paymentStatus !== 'paid' && o.status !== 'cancelled') return false;
                     const orderDate = new Date(o.createdAt);
                     return orderDate < limitDate;
                 });
                 
-                // Mantenemos en la memoria de las tablets solo lo útil
                 state.orders = pedidosUtiles;
 
-                // Borramos del esqueleto para que el doc principal quede ligero
                 delete cleanState.sales;
                 delete cleanState.orders;
                 delete cleanState.inventoryMovements;
@@ -646,15 +638,12 @@ function clearAllNotifications() {
                 
                 cleanState.products = cleanState.products.filter(p => !p.isVirtual);
                 
-                // Guardamos el esqueleto maestro
                 await db.collection('pizzaManager').doc(currentBranch).set(cleanState);
                 
                 const batch = db.batch();
                 const ordersRef = db.collection('pizzaManager').doc(currentBranch).collection('orders');
                 
-                // 🛑 ELIMINAMOS EL CICLO QUE GUARDABA TODOS LOS PEDIDOS A LA VEZ AQUÍ 🛑
-                
-                // Eliminamos físicamente solo los que ya caducaron (viejos)
+                // 🛑 LÓGICA DE ESCOPETA ELIMINADA: Solo borraremos los caducados
                 pedidosBasura.forEach(order => {
                     batch.delete(ordersRef.doc(order.id.toString()));
                 });
@@ -675,8 +664,8 @@ function clearAllNotifications() {
             }
         }
 
-        // ==================== GUARDADO FRANCOTIRADOR (OPTIMIZACIÓN FIREBASE) ====================
-        async function saveOrderToCloud(order) {
+       // ==================== GUARDADO FRANCOTIRADOR (OPTIMIZACIÓN FIREBASE) ====================
+       async function saveOrderToCloud(order) {
             if (!order || !order.id) return;
             try {
                 // Guarda SOLO este pedido específico, costando 1 sola operación de escritura
@@ -685,7 +674,19 @@ function clearAllNotifications() {
                 console.error("Error al guardar pedido individual", e);
             }
         }
-       
+
+        // 👇 AQUÍ EMPIEZA LO QUE DEBES PEGAR 👇
+        // ==================== ARCHIVERO INFINITO DE VENTAS ====================
+        async function saveSaleToCloud(sale) {
+            try {
+                await db.collection('pizzaManager').doc(currentBranch)
+                        .collection('sales').doc(sale.id.toString()).set(sale);
+            } catch (error) {
+                console.error("Error al subir el ticket a la nube:", error);
+            }
+        }
+        // 👆 HASTA AQUÍ 👆
+
         // 💡 VARIABLES GLOBALES DE CONEXIÓN
         let salesUnsubscribe = null; 
         let ordersUnsubscribe = null;
@@ -754,20 +755,23 @@ function clearAllNotifications() {
                     });
 
                 // 🚀 3. CONEXIÓN AL ARCHIVERO INFINITO (SOLO DESCARGA HOY)
-                const todayStart = new Date();
-                todayStart.setHours(0,0,0,0);
-                
-                salesUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
-                    .collection('sales')
-                    .where('timestamp', '>=', todayStart.toISOString())
-                    .onSnapshot(snapshot => {
-                        state.sales = [];
-                        snapshot.forEach(doc => state.sales.push(doc.data()));
-                        
-                        if(!isFirstLoad && (currentView === 'dashboard' || currentView === 'tickethistory' || currentView === 'reports' || currentView === 'cashregister')) {
-                            renderView(currentView);
-                        }
-                    });
+                // 💡 OPTIMIZACIÓN: Solo el Admin y el Cajero descargan el dinero. Meseros y Cocina NO gastan datos aquí.
+                if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cashier')) {
+                    const todayStart = new Date();
+                    todayStart.setHours(0,0,0,0);
+                    
+                    salesUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
+                        .collection('sales')
+                        .where('timestamp', '>=', todayStart.toISOString())
+                        .onSnapshot(snapshot => {
+                            state.sales = [];
+                            snapshot.forEach(doc => state.sales.push(doc.data()));
+                            
+                            if(!isFirstLoad && (currentView === 'dashboard' || currentView === 'tickethistory' || currentView === 'reports' || currentView === 'cashregister')) {
+                                renderView(currentView);
+                            }
+                        });
+                }
             });
         }
 
@@ -2561,6 +2565,7 @@ function processPayment(method) {
                 </div>
             `;
         }
+
         function updateOrderStatus(orderId, newStatus) {
             const order = state.orders.find(o => o.id === orderId);
             if (!order) return;
@@ -2574,8 +2579,8 @@ function processPayment(method) {
                 });
             }
 
-            saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
-            saveToStorage();
+            saveOrderToCloud(order); // 🎯 SOLO DISPARA A ESTE PEDIDO
+            // ❌ SE ELIMINÓ EL GUARDADO MASIVO (saveToStorage) PARA AHORRAR DATOS
             
             const statusText = typeof getStatusLabel === 'function' ? getStatusLabel(newStatus) : newStatus;
             showToast(`✅ Pedido marcado como: ${statusText}`, 'success');
@@ -2587,6 +2592,7 @@ function processPayment(method) {
                 if (typeof renderWaiter === 'function') renderWaiter(contentArea);
             }
         }
+        
         function showKitchenReportModal() {
             const today = new Date().toDateString();
             const todayOrders = state.orders.filter(o => new Date(o.createdAt).toDateString() === today && o.status !== 'cancelled');
@@ -3109,6 +3115,7 @@ function processPayment(method) {
                 } catch(e) {}
 
                 // (Busca dentro de sendTableOrder, reemplaza desde "currentCart = [];" hasta el final del try)
+                // Esto va dentro del TRY de sendTableOrder, casi al final
                 currentCart = [];
                 window.isMobileCartOpen = false;
                 
@@ -3213,9 +3220,8 @@ function processPayment(method) {
                 showToast('ℹ️ Solo se pueden limpiar pedidos ya entregados o pagados', 'info');
             }
         }
-        // ==================== TICKET HISTORY MODULE ====================
      // ==================== TICKET HISTORY MODULE ====================
-     function renderTicketHistory(container) {
+     async function renderTicketHistory(container) {
             const getLocalYYYYMMDD = (dateObj) => {
                 const d = new Date(dateObj);
                 if (isNaN(d)) return "";
@@ -3232,8 +3238,8 @@ function processPayment(method) {
             }
 
             const targetDateStr = window.selectedTicketsDate;
+            const isToday = targetDateStr === todayLocalStr;
 
-            // 1. Dibujamos la estructura base
             container.innerHTML = `
                 <div class="animate-slideIn h-full flex flex-col">
                     <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 shrink-0 border-b border-theme-beige pb-4 gap-4">
@@ -3250,7 +3256,7 @@ function processPayment(method) {
                                 onchange="changeTicketsDate(this.value)"
                                 class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
                             
-                            ${targetDateStr !== todayLocalStr ? 
+                            ${!isToday ? 
                                 `<button onclick="changeTicketsDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
                             : ''}
                         </div>
@@ -3259,64 +3265,78 @@ function processPayment(method) {
                     <div id="ticketHistoryList" class="space-y-4 flex-1 overflow-auto scrollbar-thin pr-2 pb-4 relative">
                         <div class="absolute inset-0 flex flex-col items-center justify-center animate-pulse">
                             <div class="text-4xl mb-3">☁️</div>
-                            <p class="text-theme-greenDark font-bold">Conectando con la nube...</p>
+                            <p class="text-theme-greenDark font-bold">Buscando tickets...</p>
                         </div>
                     </div>
                 </div>
             `;
 
-            // 2. Limpiar conexión vieja
-            if (window.historyUnsubscribe) window.historyUnsubscribe();
+            // Limpiamos la fuga (matamos listeners viejos si existían)
+            if (window.historyUnsubscribe) {
+                window.historyUnsubscribe();
+                window.historyUnsubscribe = null;
+            }
 
-            const start = new Date(targetDateStr + 'T00:00:00');
-            const end = new Date(targetDateStr + 'T23:59:59');
+            let activeSales = [];
 
-            // 3. Conexión en tiempo real a Firebase
-            window.historyUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
-                .collection('sales')
-                .where('timestamp', '>=', start.toISOString())
-                .where('timestamp', '<=', end.toISOString())
-                .onSnapshot(snapshot => {
-                    const listContainer = document.getElementById('ticketHistoryList');
-                    if (!listContainer) return;
-
-                    const activeSales = [];
+            if (isToday) {
+                // 💡 SÚPER OPTIMIZACIÓN: Si es hoy, NO USA FIREBASE, usa la memoria local gratuita
+                activeSales = [...(state.sales || [])];
+                activeSales.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                paintTicketList(activeSales);
+            } else {
+                // 💡 SÚPER OPTIMIZACIÓN: Si es histórico, descarga UNA SOLA VEZ, sin dejar la conexión abierta
+                try {
+                    const start = new Date(targetDateStr + 'T00:00:00').toISOString();
+                    const end = new Date(targetDateStr + 'T23:59:59').toISOString();
+                    const snapshot = await db.collection('pizzaManager').doc(currentBranch)
+                        .collection('sales')
+                        .where('timestamp', '>=', start)
+                        .where('timestamp', '<=', end)
+                        .get();
+                    
                     snapshot.forEach(doc => activeSales.push(doc.data()));
                     activeSales.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    paintTicketList(activeSales);
+                } catch(error) {
+                    console.error("Error:", error);
+                    document.getElementById('ticketHistoryList').innerHTML = '<p class="text-red-500 text-center py-12 font-bold">Error al conectar con la nube.</p>';
+                }
+            }
 
-                    const badge = document.getElementById('ticketCountBadge');
-                    if (badge) badge.textContent = `Total: ${activeSales.length} tickets`;
+            function paintTicketList(salesArray) {
+                const listContainer = document.getElementById('ticketHistoryList');
+                if (!listContainer) return;
 
-                    listContainer.innerHTML = activeSales.length === 0 
-                        ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay cobros registrados en esta fecha.</p>' 
-                        : activeSales.map(sale => `
-                            <div class="glass bg-white/80 border border-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
-                                <div>
-                                    <p class="font-extrabold text-theme-text text-lg">Ticket #${(sale.folio || "S/F")}</p>
-                                    <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(sale.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
-                                    <p class="text-sm font-medium mt-2 text-theme-text">${sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
-                                </div>
-                                <div class="text-left md:text-right flex flex-col justify-between items-start md:items-end h-full">
-                                    <p class="font-extrabold text-xl text-theme-greenDark mb-3">$${sale.total.toLocaleString()}</p>
-                                    <div class="flex gap-2 mt-auto">
-                                        <span class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">
-                                            ${sale.paymentMethod === 'cash' ? '💵 Efectivo' : '📱 Transferencia'}
-                                        </span>
-                                        <button onclick='reprintTicket(${sale.id})' class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-theme-bg border border-theme-beige hover:bg-theme-beige transition text-theme-text">
-                                            🖨️ Ver Ticket
-                                        </button>
-                                        <button onclick="confirmForceDeleteTicket(${sale.id}, ${sale.orderId})" class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition">
-                                            🗑️ Borrar
-                                        </button>
-                                    </div>
+                const badge = document.getElementById('ticketCountBadge');
+                if (badge) badge.textContent = `Total: ${salesArray.length} tickets`;
+
+                listContainer.innerHTML = salesArray.length === 0 
+                    ? '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay cobros registrados en esta fecha.</p>' 
+                    : salesArray.map(sale => `
+                        <div class="glass bg-white/80 border border-white rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
+                            <div>
+                                <p class="font-extrabold text-theme-text text-lg">Ticket #${(sale.folio || "S/F")}</p>
+                                <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(sale.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
+                                <p class="text-sm font-medium mt-2 text-theme-text">${sale.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
+                            </div>
+                            <div class="text-left md:text-right flex flex-col justify-between items-start md:items-end h-full">
+                                <p class="font-extrabold text-xl text-theme-greenDark mb-3">$${sale.total.toLocaleString()}</p>
+                                <div class="flex gap-2 mt-auto">
+                                    <span class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">
+                                        ${sale.paymentMethod === 'cash' ? '💵 Efectivo' : '📱 Transferencia'}
+                                    </span>
+                                    <button onclick='reprintTicket(${sale.id})' class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-theme-bg border border-theme-beige hover:bg-theme-beige transition text-theme-text">
+                                        🖨️ Ver Ticket
+                                    </button>
+                                    <button onclick="confirmForceDeleteTicket(${sale.id}, ${sale.orderId})" class="px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition">
+                                        🗑️ Borrar
+                                    </button>
                                 </div>
                             </div>
-                        `).join('');
-                }, error => {
-                    console.error("Error:", error);
-                    const listContainer = document.getElementById('ticketHistoryList');
-                    if (listContainer) listContainer.innerHTML = '<p class="text-red-500 text-center py-12 font-bold">Error al sincronizar con la nube.</p>';
-                });
+                        </div>
+                    `).join('');
+            }
         }
 
 
@@ -5246,7 +5266,7 @@ function saveNewProduct() {
 
 
      // ==================== ORDERS MODULE ====================
-     function renderOrders(container) {
+     async function renderOrders(container) {
             const getLocalYYYYMMDD = (dateObj) => {
                 const d = new Date(dateObj);
                 if (isNaN(d)) return "";
@@ -5263,12 +5283,11 @@ function saveNewProduct() {
             }
 
             const targetDateStr = window.selectedOrdersDate;
+            const isToday = targetDateStr === todayLocalStr;
 
-            // 1. Dibujamos la estructura base con un "Loading" animado
             container.innerHTML = `
                 <div class="animate-slideIn h-full flex flex-col">
                     <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 border-b border-theme-beige pb-4 gap-4 shrink-0">
-                        
                         <div class="flex items-center gap-3">
                             <h2 class="text-2xl font-bold flex items-center gap-3 text-theme-greenDark">📋 Historial de Pedidos</h2>
                             <span id="ordersCountBadge" class="bg-white px-3 py-1 rounded-lg text-sm font-bold text-theme-textMuted border border-theme-beige shadow-sm">
@@ -5282,120 +5301,126 @@ function saveNewProduct() {
                                 onchange="changeOrdersDate(this.value)"
                                 class="bg-transparent font-black text-theme-text focus:outline-none cursor-pointer">
                             
-                            ${targetDateStr !== todayLocalStr ? 
+                            ${!isToday ? 
                                 `<button onclick="changeOrdersDate('${todayLocalStr}')" class="ml-2 text-xs bg-theme-bg px-3 py-1.5 rounded-lg text-theme-text font-bold hover:bg-theme-beige transition border border-theme-beige shadow-sm">Ir a Hoy</button>` 
                             : ''}
                         </div>
-                        
                     </div>
                     
                     <div id="ordersListContainer" class="space-y-4 flex-1 overflow-y-auto scrollbar-thin pr-2 relative">
                         <div class="absolute inset-0 flex flex-col items-center justify-center animate-pulse">
                             <div class="text-4xl mb-3">☁️</div>
-                            <p class="text-theme-greenDark font-bold text-lg">Descargando pedidos de la nube...</p>
+                            <p class="text-theme-greenDark font-bold text-lg">Buscando pedidos...</p>
                         </div>
                     </div>
                 </div>
             `;
 
-            // 2. Limpiar cualquier conexión vieja para no cruzar datos de otros días
-            if (window.ordersHistoryUnsubscribe) window.ordersHistoryUnsubscribe();
+           // Limpiamos la fuga
+           if (window.ordersHistoryUnsubscribe) {
+                window.ordersHistoryUnsubscribe();
+                window.ordersHistoryUnsubscribe = null;
+            }
 
-            // 3. Crear el rango de tiempo del día seleccionado en el calendario
-            const start = new Date(targetDateStr + 'T00:00:00').toISOString();
-            const end = new Date(targetDateStr + 'T23:59:59').toISOString();
+            let activeOrders = [];
 
-            // 4. CONEXIÓN INTELIGENTE A LA NUBE (Busca el día exacto)
-            window.ordersHistoryUnsubscribe = db.collection('pizzaManager').doc(currentBranch)
-                .collection('orders')
-                .where('createdAt', '>=', start)
-                .where('createdAt', '<=', end)
-                .onSnapshot(snapshot => {
-                    const listContainer = document.getElementById('ordersListContainer');
-                    if (!listContainer) return;
-
-                    const activeOrders = [];
+            if (isToday) {
+                // 💡 SÚPER OPTIMIZACIÓN: Filtramos la memoria local para mostrar SOLO los de hoy
+                activeOrders = (state.orders || []).filter(o => {
+                    if (o.status === 'cancelled') return false;
+                    // Comparamos que la fecha del pedido sea exactamente la de hoy
+                    return getLocalYYYYMMDD(o.createdAt) === targetDateStr;
+                });
+                activeOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                paintOrdersList(activeOrders);
+            } else {
+                // 💡 SÚPER OPTIMIZACIÓN: Consulta estática rápida, sin manguera permanente
+                try {
+                    const start = new Date(targetDateStr + 'T00:00:00').toISOString();
+                    const end = new Date(targetDateStr + 'T23:59:59').toISOString();
+                    const snapshot = await db.collection('pizzaManager').doc(currentBranch)
+                        .collection('orders')
+                        .where('createdAt', '>=', start)
+                        .where('createdAt', '<=', end)
+                        .get();
+                    
                     snapshot.forEach(doc => {
                         const o = doc.data();
                         if (o.status !== 'cancelled') activeOrders.push(o);
                     });
-
-                    // Ordenar del más reciente al más antiguo
                     activeOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    paintOrdersList(activeOrders);
+                } catch(error) {
+                    console.error("Error:", error);
+                    document.getElementById('ordersListContainer').innerHTML = '<p class="text-red-500 text-center py-12 font-bold">Error de conexión con la nube.</p>';
+                }
+            }
 
-                    // Actualizar el "badge" de cantidad de tickets
-                    const badge = document.getElementById('ordersCountBadge');
-                    if (badge) badge.textContent = `${activeOrders.length} tickets`;
+            function paintOrdersList(ordersArray) {
+                const listContainer = document.getElementById('ordersListContainer');
+                if (!listContainer) return;
 
-                    // Inyectar el HTML con los resultados
-                    listContainer.innerHTML = activeOrders.map(order => {
-                        
-                        // 👇 AQUÍ PEGAS EL CÓDIGO EXACTAMENTE 👇
-                        const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
-                        
-                        // 💡 SOLUCIÓN DEFINITIVA A LOS FOLIOS: 
-                        // Rescatamos el ID, pero si es un "chorizo" numérico de Firebase, lo cortamos a 4 dígitos.
-                        let rawId = (order.folio && order.folio !== 'S/F') ? order.folio : (order.ticket_num || order.id);
-                        const ticketFolio = rawId.toString().length > 6 ? rawId.toString().slice(-4) : rawId;
-                        // 👆 HASTA AQUÍ 👆
+                const badge = document.getElementById('ordersCountBadge');
+                if (badge) badge.textContent = `${ordersArray.length} tickets`;
 
-                        return `
-                        <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
-                            <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
-                                <div class="flex items-center gap-3 flex-wrap">
-                                    <span class="text-xl font-extrabold text-theme-text">#${ticketFolio}</span>
-                                    <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
-                                        ${tableNameDisplay}
-                                    </span>
-                                    <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
-                                    
-                                    <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
-                                        ${order.paymentStatus === 'paid' ? '✅ Pagado' : '⏳ Pendiente Pago'}
-                                    </span>
-                                </div>
-                                <div class="text-left md:text-right">
-                                    <p class="font-extrabold text-xl text-theme-greenDark">$${order.total.toLocaleString()}</p>
-                                    <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(order.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
-                                </div>
-                            </div>
-                            <div class="flex flex-wrap gap-2 text-sm font-medium mt-3 border-t border-theme-beige pt-3">
-                                ${order.items.map(i => `<span class="px-3 py-1 rounded-lg bg-theme-bg border border-theme-beige text-theme-text"><strong class="text-theme-greenDark">${i.quantity}x</strong> ${i.name}</span>`).join('')}
-                            </div>
-                            
-                            <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-theme-beige w-full justify-end">
-                                ${order.paymentStatus !== 'paid' ? `
-                                    <button onclick="printPreCheck(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-theme-text hover:bg-gray-200 border border-gray-300 transition shadow-sm flex items-center gap-2">
-                                        🖨️ Ver Pre-Cuenta
-                                    </button>
-                                ` : ''}
+                listContainer.innerHTML = ordersArray.map(order => {
+                    const tableNameDisplay = order.type === 'table' ? (order.tableName || `Mesa ${order.tableId}`) : 'Mostrador';
+                    let rawId = (order.folio && order.folio !== 'S/F') ? order.folio : (order.ticket_num || order.id);
+                    const ticketFolio = rawId.toString().length > 6 ? rawId.toString().slice(-4) : rawId;
 
-                                ${order.status === 'delivered' && order.paymentStatus !== 'paid' ? `
-                                    <button onclick="payExistingOrder(${order.id}, 'cash')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-green-500 text-white hover:bg-green-600 transition shadow-sm flex items-center gap-2">
-                                        💵 Cobrar Efectivo
-                                    </button>
-                                    <button onclick="payExistingOrder(${order.id}, 'transfer')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition shadow-sm flex items-center gap-2">
-                                        📱 Cobrar Transferencia
-                                    </button>
-                                ` : ''}
+                    return `
+                    <div class="glass bg-white/60 border border-white rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span class="text-xl font-extrabold text-theme-text">#${ticketFolio}</span>
+                                <span class="px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm ${order.type === 'table' ? 'bg-purple-400' : 'bg-blue-400'}">
+                                    ${tableNameDisplay}
+                                </span>
+                                <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${getStatusClass(order.status)}">${getStatusLabel(order.status)}</span>
                                 
-                                <div class="flex items-center gap-2 ml-auto">
-                                    <button onclick="showEditOrderModal(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 transition shadow-sm flex items-center gap-2">
-                                        ✏️ Editar
-                                    </button>
-                                    
-                                    <button onclick="showDeleteOrderAuthModal(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 transition shadow-sm flex items-center gap-2">
-                                        🗑️ Eliminar
-                                    </button>
-                                </div>
+                                <span class="px-3 py-1 rounded-full text-xs font-bold shadow-sm ${order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
+                                    ${order.paymentStatus === 'paid' ? '✅ Pagado' : '⏳ Pendiente Pago'}
+                                </span>
+                            </div>
+                            <div class="text-left md:text-right">
+                                <p class="font-extrabold text-xl text-theme-greenDark">$${order.total.toLocaleString()}</p>
+                                <p class="text-xs font-bold text-theme-textMuted mt-1">🕒 ${new Date(order.createdAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
                             </div>
                         </div>
-                        `;
-                    }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>';
-                }, error => {
-                    console.error("Error al descargar pedidos pasados:", error);
-                    const listContainer = document.getElementById('ordersListContainer');
-                    if (listContainer) listContainer.innerHTML = '<p class="text-red-500 text-center py-12 font-bold">Error de conexión con la nube.</p>';
-                });
+                        <div class="flex flex-wrap gap-2 text-sm font-medium mt-3 border-t border-theme-beige pt-3">
+                            ${order.items.map(i => `<span class="px-3 py-1 rounded-lg bg-theme-bg border border-theme-beige text-theme-text"><strong class="text-theme-greenDark">${i.quantity}x</strong> ${i.name}</span>`).join('')}
+                        </div>
+                        
+                        <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-theme-beige w-full justify-end">
+                            ${order.paymentStatus !== 'paid' ? `
+                                <button onclick="printPreCheck(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-theme-text hover:bg-gray-200 border border-gray-300 transition shadow-sm flex items-center gap-2">
+                                    🖨️ Ver Pre-Cuenta
+                                </button>
+                            ` : ''}
+
+                            ${order.status === 'delivered' && order.paymentStatus !== 'paid' ? `
+                                <button onclick="payExistingOrder(${order.id}, 'cash')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-green-500 text-white hover:bg-green-600 transition shadow-sm flex items-center gap-2">
+                                    💵 Cobrar Efectivo
+                                </button>
+                                <button onclick="payExistingOrder(${order.id}, 'transfer')" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition shadow-sm flex items-center gap-2">
+                                    📱 Cobrar Transferencia
+                                </button>
+                            ` : ''}
+                            
+                            <div class="flex items-center gap-2 ml-auto">
+                                <button onclick="showEditOrderModal(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 transition shadow-sm flex items-center gap-2">
+                                    ✏️ Editar
+                                </button>
+                                
+                                <button onclick="showDeleteOrderAuthModal(${order.id})" class="px-4 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white hover:bg-red-600 transition shadow-sm flex items-center gap-2">
+                                    🗑️ Eliminar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }).join('') || '<p class="text-theme-textMuted text-center py-12 font-medium text-lg">No hay pedidos registrados en esta fecha.</p>';
+            }
         }
         // ==================== ELIMINACIÓN SEGURA DE PEDIDOS (ADMIN) ====================
         function showDeleteOrderAuthModal(orderId) {
@@ -5485,9 +5510,10 @@ function saveNewProduct() {
                 logActivity('ORDER_DELETED', `Pedido #${orderId.toString().slice(-4)} eliminado totalmente con clave Admin`);
                 
                 // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
                 if (folioEliminado && !isNaN(folioEliminado)) {
                     await reestructurarFolios(folioEliminado);
-                    await decrementarContadorGlobal(); // 🎯 Candado hacia atrás
+                    await decrementarContadorGlobal(); // 🎯 NUEVO CANDADO EN REVERSA
                 } else {
                     saveToStorage();
                     closeModal();
@@ -5763,7 +5789,7 @@ function payExistingOrder(orderId, method) {
 
                     order = {
                         id: newOrderId,
-                        folio: maxFolio, // 🌟 NÚMERO ÚNICO E IRREPETIBLE
+                        folio: maxFolio, 
                         type: 'counter',
                         items: [...currentCart],
                         total: total,
@@ -5777,7 +5803,6 @@ function payExistingOrder(orderId, method) {
                         tableId: null
                     };
 
-                    // Descontar inventario
                     currentCart.forEach(cartItem => {
                         const product = state.products.find(p => p.id === cartItem.productId);
                         if (product && product.ingredients) {
@@ -5853,7 +5878,7 @@ function payExistingOrder(orderId, method) {
                     const sale = {
                         id: Date.now(),
                         orderId: order.id,
-                        folio: order.folio, // 🌟 HEREDA EL FOLIO DE LA ORDEN
+                        folio: order.folio, // 🌟 HEREDA EL FOLIO
                         items: [...order.items],
                         subtotal: order.total,
                         total: order.total,
@@ -5890,9 +5915,10 @@ function payExistingOrder(orderId, method) {
                     }
                 }
             } catch (error) {
-                // 🛡️ ESCUDO ANTI-CONGELAMIENTO: Si algo falla, el botón se libera automáticamente
+                // 🛡️ ESCUDO: Si algo falla, el botón se libera y no corrompe la caja
                 console.error("Error crítico al procesar pago:", error);
-                showToast('Error de conexión al cobrar', 'error');
+                showToast('Error interno al cobrar', 'error');
+            } finally {
                 if (btn) {
                     btn.removeAttribute('data-processing');
                     btn.innerHTML = 'Pagar';
@@ -5900,7 +5926,6 @@ function payExistingOrder(orderId, method) {
                 }
             }
         }
-
         // ==================== VARIABLES PARA LA GRÁFICA ====================
         let reportChartMode = 'weekly'; 
         let reportSelectedMonth = new Date().getMonth();
@@ -6927,34 +6952,42 @@ function payExistingOrder(orderId, method) {
         }
 
 
-        // ==================== REINICIO DE FOLIOS (PARA PRUEBAS) ====================
+        // ==================== AJUSTE DINÁMICO DE FOLIOS ====================
         function confirmResetFolio() {
             const modal = document.getElementById('modalContainer');
             modal.innerHTML = `
                 <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-orange-300 text-center">
                     <div class="text-5xl mb-4 drop-shadow-md">🔄</div>
-                    <h3 class="text-xl font-extrabold mb-2 text-orange-600">¿Reiniciar Folios?</h3>
-                    <p class="text-sm text-theme-text font-medium mb-6">El próximo pedido que registres comenzará desde el <strong>#1</strong>. Usa esto solo si estás limpiando el sistema después de hacer pruebas.</p>
+                    <h3 class="text-xl font-extrabold mb-2 text-orange-600">Ajustar Contador de Folios</h3>
+                    <p class="text-sm text-theme-text font-medium mb-4">Ingresa el número exacto del último folio que cobraste (ej. 103). El próximo pedido será el siguiente (104).</p>
+                    <input type="number" id="manualFolioInput" class="w-full px-4 py-3 mb-6 bg-white border border-orange-200 rounded-xl text-2xl text-center focus:outline-none focus:border-orange-500 font-bold text-theme-text" placeholder="Ej: 103">
                     <div class="grid grid-cols-2 gap-3">
                         <button onclick="closeModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
-                        <button onclick="resetFolioCounter()" class="bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold shadow-md transition">Sí, Reiniciar a #1</button>
+                        <button onclick="resetFolioCounter()" class="bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold shadow-md transition">Ajustar Folio</button>
                     </div>
                 </div>
             `;
             modal.classList.remove('hidden');
+            setTimeout(() => document.getElementById('manualFolioInput').focus(), 100);
         }
 
         async function resetFolioCounter() {
+            const inputValue = parseInt(document.getElementById('manualFolioInput').value);
+            if (isNaN(inputValue) || inputValue < 0) {
+                showToast('Ingresa un número válido', 'warning');
+                return;
+            }
+            
             try {
-                showToast('Reiniciando contador en la nube...', 'info');
-                // Buscamos el cuenta kilómetros en Firebase y lo regresamos a 0
+                showToast('Ajustando contador en la nube...', 'info');
+                // Seteamos el contador exactamente al número que escribiste
                 const counterRef = db.collection('pizzaManager').doc(currentBranch).collection('config').doc('counters');
-                await counterRef.set({ orderFolio: 0 }); 
+                await counterRef.set({ orderFolio: inputValue }); 
                 
-                showToast('✅ Contador reiniciado. El próximo ticket será el #1', 'success');
+                showToast(`✅ Contador ajustado. El próximo ticket será el #${inputValue + 1}`, 'success');
                 closeModal();
             } catch (error) {
-                console.error("Error al reiniciar folio:", error);
+                console.error("Error al ajustar folio:", error);
                 showToast('Error al conectar con la nube', 'error');
             }
         }
@@ -7974,16 +8007,16 @@ function payExistingOrder(orderId, method) {
 
    
 
-       // ==================== CEREBRO DE REGISTRO DE IMPRESIÓN ====================
-       function executeKitchenPrint(orderId) {
+      // ==================== CEREBRO DE REGISTRO DE IMPRESIÓN ====================
+      function executeKitchenPrint(orderId) {
             window.print();
             const order = state.orders.find(o => o.id === orderId);
             if (order) {
                 order.items.forEach(item => {
                     item.printedQty = item.quantity;
                 });
-                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
-                saveToStorage();
+                saveOrderToCloud(order); // 🎯 SOLO DISPARA A ESTE PEDIDO
+                // ❌ SE ELIMINÓ EL GUARDADO MASIVO (saveToStorage)
             }
         }
         // ==================== PRE-CUENTA (TICKET PARA LA MESA SIN PAGAR) ====================
@@ -8153,9 +8186,10 @@ function payExistingOrder(orderId, method) {
                 logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado por Admin`);
                 
                 // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
                 if (folioEliminado && !isNaN(folioEliminado)) {
                     await reestructurarFolios(folioEliminado);
-                    await decrementarContadorGlobal(); // 🎯 Candado hacia atrás
+                    await decrementarContadorGlobal(); // 🎯 NUEVO CANDADO EN REVERSA
                 } else {
                     saveToStorage(); 
                     closeModal();
@@ -8317,9 +8351,8 @@ function payExistingOrder(orderId, method) {
             if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
             if (currentView === 'dashboard') renderDashboard(document.getElementById('contentArea'));
         }
-
-       // ==================== GENERACIÓN DE FOLIO GLOBAL (CANDADO ANTI-DUPLICADOS) ====================
-       async function getNextFolio(branchId) {
+// ==================== GENERACIÓN DE FOLIO GLOBAL (CANDADO ANTI-DUPLICADOS) ====================
+async function getNextFolio(branchId) {
             const counterRef = db.collection('pizzaManager').doc(branchId).collection('config').doc('counters');
             try {
                 return await db.runTransaction(async (transaction) => {
@@ -8357,7 +8390,7 @@ function payExistingOrder(orderId, method) {
                     }
                 });
             } catch (err) {
-                console.error("Error al retroceder el contador", err);
+                console.error("Error al retroceder", err);
             }
         }
 
