@@ -5727,8 +5727,19 @@ function payExistingOrder(orderId, method) {
             }
         }
 
-      // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
-      async function processPartialPayment(orderId, method) {
+     // ==================== GUARDADO FRANCOTIRADOR (OPTIMIZACIÓN FIREBASE) ====================
+     async function saveOrderToCloud(order) {
+            if (!order || !order.id) return;
+            try {
+                // Guarda SOLO este pedido específico, costando 1 sola operación de escritura
+                await db.collection('pizzaManager').doc(currentBranch).collection('orders').doc(order.id.toString()).set(order);
+            } catch(e) {
+                console.error("Error al guardar pedido individual", e);
+            }
+        }
+
+        // ==================== MOTOR DE PAGOS PARCIALES Y MIXTOS ====================
+        async function processPartialPayment(orderId, method) {
             const btn = document.getElementById('confirmOrderPaymentBtn');
             if (btn && btn.getAttribute('data-processing') === 'true') return;
             
@@ -5738,143 +5749,154 @@ function payExistingOrder(orderId, method) {
                 btn.classList.add('opacity-50', 'cursor-not-allowed');
             }
 
-            let order;
+            try {
+                let order;
 
-            // Si es una orden nueva de mostrador
-            if (orderId === 'new_counter') {
-                const total = calculateCartTotal();
-                const newOrderId = Date.now();
-                const isLiteMode = state.settings && state.settings.systemMode === 'counter';
+                // Si es una orden nueva de mostrador
+                if (orderId === 'new_counter') {
+                    const total = calculateCartTotal();
+                    const newOrderId = Date.now();
+                    const isLiteMode = state.settings && state.settings.systemMode === 'counter';
 
-                // 💡 SOLUCIÓN DEFINITIVA: Pedimos el folio atómico a Firebase
-                const maxFolio = await getNextFolio(currentBranch);
+                    // 💡 SOLUCIÓN DEFINITIVA: Pedimos el folio atómico a Firebase
+                    const maxFolio = await getNextFolio(currentBranch);
 
-                order = {
-                    id: newOrderId,
-                    folio: maxFolio, // 🌟 NÚMERO ÚNICO E IRREPETIBLE
-                    type: 'counter',
-                    items: [...currentCart],
-                    total: total,
-                    status: isLiteMode ? 'delivered' : 'pending', 
-                    paymentMethod: null,
-                    paymentStatus: 'pending',
-                    paidAmount: 0,
-                    payments: [],
-                    createdAt: new Date().toISOString(),
-                    createdBy: currentUser.id,
-                    tableId: null
-                };
+                    order = {
+                        id: newOrderId,
+                        folio: maxFolio, // 🌟 NÚMERO ÚNICO E IRREPETIBLE
+                        type: 'counter',
+                        items: [...currentCart],
+                        total: total,
+                        status: isLiteMode ? 'delivered' : 'pending', 
+                        paymentMethod: null,
+                        paymentStatus: 'pending',
+                        paidAmount: 0,
+                        payments: [],
+                        createdAt: new Date().toISOString(),
+                        createdBy: currentUser.id,
+                        tableId: null
+                    };
 
-                // Descontar inventario
-                currentCart.forEach(cartItem => {
-                    const product = state.products.find(p => p.id === cartItem.productId);
-                    if (product && product.ingredients) {
-                        product.ingredients.forEach(ing => {
-                            const invItem = state.inventory.find(i => i.id === ing.id);
-                            if (invItem) {
-                                invItem.stock -= (ing.qty * cartItem.quantity);
-                                if (invItem.stock <= invItem.minStock) {
-                                    try { addNotification('warning', `⚠️ Stock bajo: ${invItem.name}`, ['admin', 'cashier']); } catch(e){}
+                    // Descontar inventario
+                    currentCart.forEach(cartItem => {
+                        const product = state.products.find(p => p.id === cartItem.productId);
+                        if (product && product.ingredients) {
+                            product.ingredients.forEach(ing => {
+                                const invItem = state.inventory.find(i => i.id === ing.id);
+                                if (invItem) {
+                                    invItem.stock -= (ing.qty * cartItem.quantity);
+                                    if (invItem.stock <= invItem.minStock) {
+                                        try { addNotification('warning', `⚠️ Stock bajo: ${invItem.name}`, ['admin', 'cashier']); } catch(e){}
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
+                    });
+                    checkProductAvailability();
+
+                    state.orders.push(order);
+                    
+                    if (!isLiteMode) {
+                        try { addNotification('info', `Nuevo pedido #${newOrderId.toString().slice(-4)}`, ['kitchen']); } catch(e){}
                     }
-                });
-                checkProductAvailability();
+                    
+                    logActivity('ORDER_CREATE', `Pedido de mostrador creado por $${total}`);
 
-                state.orders.push(order);
-                
-                if (!isLiteMode) {
-                    try { addNotification('info', `Nuevo pedido #${newOrderId.toString().slice(-4)}`, ['kitchen']); } catch(e){}
+                    currentCart = [];
+                    updateCartDisplay();
+                } else {
+                    order = state.orders.find(o => String(o.id) === String(orderId));
                 }
-                
-                logActivity('ORDER_CREATE', `Pedido de mostrador creado por $${total}`);
 
-                currentCart = [];
-                updateCartDisplay();
-            } else {
-                order = state.orders.find(o => String(o.id) === String(orderId));
-            }
+                if (!order) throw new Error("No se encontró la orden en memoria.");
 
-            if (!order) return;
+                const amountToPay = parseFloat(document.getElementById('partialPaymentAmount').value) || 0;
+                let received = amountToPay;
+                let change = 0;
 
-            const amountToPay = parseFloat(document.getElementById('partialPaymentAmount').value) || 0;
-            let received = amountToPay;
-            let change = 0;
+                if (method === 'cash') {
+                    received = parseFloat(document.getElementById('orderCashReceived').value) || 0;
+                    change = received - amountToPay;
+                }
 
-            if (method === 'cash') {
-                received = parseFloat(document.getElementById('orderCashReceived').value) || 0;
-                change = received - amountToPay;
-            }
+                if (!order.paidAmount) order.paidAmount = 0;
+                if (!order.payments) order.payments = [];
 
-            if (!order.paidAmount) order.paidAmount = 0;
-            if (!order.payments) order.payments = [];
-
-            order.payments.push({
-                method: method,
-                amount: amountToPay,
-                received: received,
-                change: change,
-                timestamp: new Date().toISOString(),
-                cashierName: currentUser.name
-            });
-
-            order.paidAmount += amountToPay;
-
-            if (state.cashRegister.isOpen) {
-                state.cashRegister.movements.push({
-                    type: 'sale',
+                order.payments.push({
+                    method: method,
                     amount: amountToPay,
-                    paymentMethod: method,
-                    orderId: order.id,
+                    received: received,
+                    change: change,
                     timestamp: new Date().toISOString(),
-                    description: `Abono a Ticket #${(order.folio || "S/F")}`
-                });
-            }
-
-            logActivity('SALE_PARTIAL', `Abono a pedido #${(order.folio || "S/F")} por $${amountToPay} - ${method}`);
-
-            if (order.paidAmount >= order.total) {
-                order.paymentStatus = 'paid';
-                order.paymentMethod = order.payments.length > 1 ? 'mixed' : method; 
-
-                const sale = {
-                    id: Date.now(),
-                    orderId: order.id,
-                    folio: order.folio, 
-                    items: [...order.items],
-                    subtotal: order.total,
-                    total: order.total,
-                    paymentMethod: order.paymentMethod,
-                    paymentsBreakdown: order.payments,
-                    timestamp: new Date().toISOString(),
-                    cashierId: currentUser.id,
                     cashierName: currentUser.name
-                };
-                
-                saveSaleToCloud(sale);
-                
-                if (!state.sales) state.sales = [];
-                state.sales.push(sale);
+                });
 
-                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
-                saveToStorage();
-                showToast('✅ Cuenta liquidada por completo', 'success');
-                closeModal();
-                renderView(currentView);
-                showReceipt(sale);
+                order.paidAmount += amountToPay;
 
-            } else {
-                const remaining = order.total - order.paidAmount;
-                
-                saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
-                saveToStorage();
-                showToast(`✅ Abono guardado. Restan por pagar: $${remaining}`, 'info');
-                closeModal();
-                renderView(currentView);
-                
-                if (currentView === 'waiter' && selectedTable) {
-                    selectTable(selectedTable);
+                if (state.cashRegister.isOpen) {
+                    state.cashRegister.movements.push({
+                        type: 'sale',
+                        amount: amountToPay,
+                        paymentMethod: method,
+                        orderId: order.id,
+                        timestamp: new Date().toISOString(),
+                        description: `Abono a Ticket #${(order.folio || "S/F")}`
+                    });
+                }
+
+                logActivity('SALE_PARTIAL', `Abono a pedido #${(order.folio || "S/F")} por $${amountToPay} - ${method}`);
+
+                if (order.paidAmount >= order.total) {
+                    order.paymentStatus = 'paid';
+                    order.paymentMethod = order.payments.length > 1 ? 'mixed' : method; 
+
+                    const sale = {
+                        id: Date.now(),
+                        orderId: order.id,
+                        folio: order.folio, // 🌟 HEREDA EL FOLIO DE LA ORDEN
+                        items: [...order.items],
+                        subtotal: order.total,
+                        total: order.total,
+                        paymentMethod: order.paymentMethod,
+                        paymentsBreakdown: order.payments,
+                        timestamp: new Date().toISOString(),
+                        cashierId: currentUser.id,
+                        cashierName: currentUser.name
+                    };
+                    
+                    saveSaleToCloud(sale);
+                    
+                    if (!state.sales) state.sales = [];
+                    state.sales.push(sale);
+
+                    saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
+                    saveToStorage();
+                    showToast('✅ Cuenta liquidada por completo', 'success');
+                    closeModal();
+                    renderView(currentView);
+                    showReceipt(sale);
+
+                } else {
+                    const remaining = order.total - order.paidAmount;
+                    
+                    saveOrderToCloud(order); // 🎯 FRANCOTIRADOR
+                    saveToStorage();
+                    showToast(`✅ Abono guardado. Restan por pagar: $${remaining}`, 'info');
+                    closeModal();
+                    renderView(currentView);
+                    
+                    if (currentView === 'waiter' && selectedTable) {
+                        selectTable(selectedTable);
+                    }
+                }
+            } catch (error) {
+                // 🛡️ ESCUDO ANTI-CONGELAMIENTO: Si algo falla, el botón se libera automáticamente
+                console.error("Error crítico al procesar pago:", error);
+                showToast('Error de conexión al cobrar', 'error');
+                if (btn) {
+                    btn.removeAttribute('data-processing');
+                    btn.innerHTML = 'Pagar';
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
                 }
             }
         }
