@@ -5981,27 +5981,50 @@ function payExistingOrder(orderId, method) {
                 state.reportSales = [];
                 snapshot.forEach(doc => state.reportSales.push(doc.data()));
 
-                // 4. Cálculos para las tarjetas
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                
-                const last7Days = [...Array(7)].map((_, i) => {
-                    const d = new Date();
-                    d.setDate(d.getDate() - (6 - i)); 
-                    d.setHours(0, 0, 0, 0);
-                    return d;
-                });
+                // 4. Cálculos Inteligentes para las tarjetas
+                let card1Title = "", card1Total = "", card1Subtitle = "", card1Color = "text-green-600";
+                let card2Title = "", card2Total = "", card2Subtitle = "", card2Color = "text-blue-600";
 
-                const todaySales = state.reportSales.filter(s => {
-                    const d = new Date(s.timestamp);
-                    d.setHours(0, 0, 0, 0);
-                    return d.getTime() === today.getTime();
-                });
-                
-                const weekSales = state.reportSales.filter(s => new Date(s.timestamp) >= last7Days[0]);
+                if (reportChartMode === 'weekly') {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
 
-                const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
-                const weekTotal = weekSales.reduce((sum, s) => sum + s.total, 0);
+                    const todaySales = state.reportSales.filter(s => {
+                        const d = new Date(s.timestamp);
+                        d.setHours(0, 0, 0, 0);
+                        return d.getTime() === today.getTime();
+                    });
+
+                    const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
+                    // El total de la semana es todo lo que trajimos de la nube en este modo
+                    const weekTotal = state.reportSales.reduce((sum, s) => sum + s.total, 0);
+
+                    card1Title = "Ventas del Día (Hoy)";
+                    card1Total = `$${todayTotal.toLocaleString()}`;
+                    card1Subtitle = `${todaySales.length} tickets procesados hoy`;
+                    card1Color = "text-green-600";
+
+                    card2Title = "Ventas de los Últimos 7 Días";
+                    card2Total = `$${weekTotal.toLocaleString()}`;
+                    card2Subtitle = `${state.reportSales.length} tickets en total`;
+                    card2Color = "text-blue-600";
+
+                } else {
+                    // MODO MENSUAL: Ajustamos las tarjetas al mes completo
+                    const monthTotal = state.reportSales.reduce((sum, s) => sum + s.total, 0);
+                    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+                    const monthName = `${monthNames[reportSelectedMonth]} ${reportSelectedYear}`;
+
+                    card1Title = `Ingresos del Mes (${monthName})`;
+                    card1Total = `$${monthTotal.toLocaleString()}`;
+                    card1Subtitle = `Ganancia bruta acumulada`;
+                    card1Color = "text-purple-600";
+
+                    card2Title = `Tickets Procesados`;
+                    card2Total = `${state.reportSales.length}`;
+                    card2Subtitle = `Órdenes cobradas en todo el mes`;
+                    card2Color = "text-blue-600";
+                }
 
                 // 5. Dibujar Interfaz
                 container.innerHTML = `
@@ -6027,14 +6050,14 @@ function payExistingOrder(orderId, method) {
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
-                                <p class="text-theme-textMuted text-sm font-bold mb-1">Ventas del Día (Hoy)</p>
-                                <p class="text-4xl font-extrabold text-green-600">$${todayTotal.toLocaleString()}</p>
-                                <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${todaySales.length} tickets procesados hoy</p>
+                                <p class="text-theme-textMuted text-sm font-bold mb-1">${card1Title}</p>
+                                <p class="text-4xl font-extrabold ${card1Color}">${card1Total}</p>
+                                <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${card1Subtitle}</p>
                             </div>
                             <div class="glass bg-white/60 border border-white rounded-2xl p-6 shadow-sm">
-                                <p class="text-theme-textMuted text-sm font-bold mb-1">Ventas de la Semana</p>
-                                <p class="text-4xl font-extrabold text-blue-600">$${weekTotal.toLocaleString()}</p>
-                                <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${weekSales.length} tickets en total</p>
+                                <p class="text-theme-textMuted text-sm font-bold mb-1">${card2Title}</p>
+                                <p class="text-4xl font-extrabold ${card2Color}">${card2Total}</p>
+                                <p class="text-xs text-theme-textMuted font-medium mt-3 bg-theme-bg inline-block px-3 py-1.5 rounded-md border border-theme-beige">${card2Subtitle}</p>
                             </div>
                         </div>
 
