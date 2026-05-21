@@ -3966,7 +3966,10 @@ function initProductCategories() {
                         ${state.productCategories.map(c => `
                             <div class="flex justify-between items-center bg-white p-3 rounded-xl border border-theme-beige shadow-sm">
                                 <span class="font-bold text-theme-text text-lg">${c.icon} ${c.name}</span>
-                                <button onclick="showEditCategoryModal('${c.id}')" class="text-xs bg-blue-50 text-blue-600 px-3 py-2 rounded-lg border border-blue-200 hover:bg-blue-100 transition font-bold shadow-sm">✏️ Editar</button>
+                                <div class="flex gap-2">
+                                    <button onclick="showEditCategoryModal('${c.id}')" class="text-xs bg-blue-50 text-blue-600 px-3 py-2 rounded-lg border border-blue-200 hover:bg-blue-100 transition font-bold shadow-sm flex items-center gap-1">✏️ Editar</button>
+                                    <button onclick="confirmDeleteProductCategory('${c.id}')" class="text-xs bg-red-50 text-red-600 px-3 py-2 rounded-lg border border-red-200 hover:bg-red-100 transition font-bold shadow-sm" title="Eliminar Categoría">🗑️</button>
+                                </div>
                             </div>
                         `).join('')}
                     </div>
@@ -3976,6 +3979,54 @@ function initProductCategories() {
                 </div>
             `;
             modal.classList.remove('hidden');
+        }
+
+        // ==================== ELIMINAR CATEGORÍAS DE PRODUCTOS ====================
+        function confirmDeleteProductCategory(catId) {
+            const cat = state.productCategories.find(c => c.id === catId);
+            if (!cat) return;
+
+            // 🛡️ Candado de Seguridad: Verificar si hay productos usando esta categoría
+            const productsInCat = state.products.filter(p => p.category === catId);
+            
+            if (productsInCat.length > 0) {
+                showToast(`⚠️ No puedes eliminarla. Hay ${productsInCat.length} producto(s) usando esta categoría.`, 'error');
+                return;
+            }
+
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="glass bg-white/90 rounded-3xl p-6 w-[95%] max-w-md animate-slideIn shadow-2xl border-2 border-red-300 text-center">
+                    <div class="text-5xl mb-4 drop-shadow-md">⚠️</div>
+                    <h3 class="text-xl font-extrabold mb-2 text-red-600">¿Eliminar Categoría?</h3>
+                    <p class="text-sm text-theme-text font-medium mb-6">Estás a punto de eliminar la categoría <strong>${cat.name}</strong> del menú. Esta acción no se puede deshacer.</p>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="showCategoryManagerModal()" class="py-3 rounded-xl bg-white hover:bg-theme-beige border border-theme-beige transition font-bold text-theme-text shadow-sm">Cancelar</button>
+                        <button onclick="deleteProductCategory('${catId}')" class="bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold shadow-md transition">Sí, Eliminar</button>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function deleteProductCategory(catId) {
+            // Filtramos para quitar la categoría eliminada
+            state.productCategories = state.productCategories.filter(c => c.id !== catId);
+            
+            logActivity('CATEGORY_DELETE', `Categoría de productos eliminada: ${catId}`);
+            
+            saveToStorage();
+            if (typeof syncMenuToBranches === 'function') syncMenuToBranches();
+            
+            showToast('✅ Categoría eliminada exitosamente', 'success');
+            
+            // Refrescar las vistas activas
+            if (currentView === 'products') renderProducts(document.getElementById('contentArea'));
+            if (currentView === 'pos') renderPOS(document.getElementById('contentArea'));
+            
+            // Volver a abrir el modal de gestión de categorías actualizado
+            showCategoryManagerModal(); 
         }
 
         function showEditCategoryModal(catId) {
