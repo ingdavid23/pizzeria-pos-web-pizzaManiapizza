@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="es" class="h-full">
 
@@ -8250,13 +8249,9 @@ function payExistingOrder(orderId, method) {
                 const saleToDelete = state.sales.find(s => s.id === saleId);
                 const folioEliminado = saleToDelete ? saleToDelete.folio : null; // 🌟 RECORDAMOS QUÉ NÚMERO ERA
 
-                // 2. Borrar físicamente de Firebase (El Archivero Infinito de Ventas)
+                // Borrar físicamente de Firebase (El Archivero Infinito)
                 await db.collection('pizzaManager').doc(currentBranch)
                     .collection('sales').doc(saleId.toString()).delete();
-
-                // 💡 SOLUCIÓN: BORRAR TAMBIÉN EL PEDIDO DE LA COLECCIÓN DE ÓRDENES (COCINA/DASHBOARD)
-                await db.collection('pizzaManager').doc(currentBranch)
-                    .collection('orders').doc(orderId.toString()).delete();
 
                 // Limpiar memoria local para que la gráfica se actualice
                 state.sales = state.sales.filter(s => s.id !== saleId);
@@ -8273,11 +8268,12 @@ function payExistingOrder(orderId, method) {
                 // Erradicar el pedido de la Cocina y de Pedidos
                 state.orders = state.orders.filter(o => o.id !== orderId);
 
-                // Guardar los cambios (caja y configuración local) en Firebase
+                // Guardar los cambios (caja y cocina) en Firebase
                 saveToStorage(); 
 
                 logActivity('GHOST_TICKET_DELETED', `Ticket #${orderId.toString().slice(-4)} eliminado por Admin`);
                 
+                // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
                 // 🌟 RECORREMOS LOS FOLIOS HACIA ATRÁS Y EN LA NUBE
                 if (folioEliminado && !isNaN(folioEliminado)) {
                     await reestructurarFolios(folioEliminado);
@@ -8288,7 +8284,7 @@ function payExistingOrder(orderId, method) {
                     if (currentView === 'tickethistory') renderTicketHistory(document.getElementById('contentArea'));
                 }
                 
-                showToast('✅ Ticket y comanda eliminados de la nube', 'success');
+                showToast('✅ Ticket eliminado de la nube', 'success');
                 
             } catch (error) {
                 console.error("Error al borrar ticket fantasma:", error);
